@@ -1,4 +1,4 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 
 const {
@@ -8,29 +8,27 @@ const {
   updateProduit,
   deleteProduit,
   updateStock,
-  getProduitsStockBas
-} = require('../controllers/produit.controller');
-
-// // Debug temporaire - supprimer après confirmation
-// console.log('Controllers:', { getProduits, getProduitById, createProduit, updateProduit, deleteProduit, updateStock, getProduitsStockBas });
+  getProduitByCodeBarres,
+  getProduitsStockBas,
+} = require("../controllers/produit.controller");
 
 // GET / POST
-router.route('/')
-  .get(getProduits)
-  .post(createProduit);
+router.route("/").get(getProduits).post(createProduit);
+
+// GET scan par code-barres (avant /:id pour éviter les conflits)
+router.route("/scan/:codeBarres").get(getProduitByCodeBarres);
 
 // GET alerte stock bas
-router.route('/alerte')
-  .get(getProduitsStockBas);
+router.route("/alerte").get(getProduitsStockBas);
 
 // GET / PUT / DELETE par id
-router.route('/:id')
+router
+  .route("/:id")
   .get(getProduitById)
   .put(updateProduit)
   .delete(deleteProduit);
 
 // PATCH stock
-router.route('/:id/stock')
-  .patch(updateStock);
+router.route("/:id/stock").patch(updateStock);
 
 module.exports = router;
