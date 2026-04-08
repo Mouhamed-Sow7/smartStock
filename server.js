@@ -17,15 +17,29 @@ console.log(" - authRoutes chargé");
 console.log("Création de l'application Express...");
 const app = express();
 console.log("Configuration CORS...");
+const originesAutorisees = [
+  "http://localhost:4200",
+  "https://smartstock-pwa-cyan.vercel.app",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+    origin: function (origin, callback) {
+      if (!origin || originesAutorisees.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS non autorisé: " + origin));
+      }
+    },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-tenant-id"],
   }),
 );
 app.use(express.json());
+app.get("/ping", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 app.use("/api", (req, res, next) => {
   console.log("Route hit:", req.originalUrl);
   next();
