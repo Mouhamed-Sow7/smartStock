@@ -26,6 +26,10 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use("/api", (req, res, next) => {
+  console.log("Route hit:", req.originalUrl);
+  next();
+});
 console.log("Configuration des routes...");
 app.use("/api/produits", produitRoutes);
 app.use("/api/ventes", venteRoutes);

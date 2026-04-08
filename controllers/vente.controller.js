@@ -130,16 +130,20 @@ const getStats = async (req, res) => {
     const tenantId = req.tenantId || "default";
     const now = new Date();
     const debutJour = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const debutSemaine = new Date(now);
+    debutSemaine.setDate(now.getDate() - now.getDay());
+    debutSemaine.setHours(0, 0, 0, 0);
     const debutMois = new Date(now.getFullYear(), now.getMonth(), 1);
     const debutAnnee = new Date(now.getFullYear(), 0, 1);
 
-    const [jour, mois, annee] = await Promise.all([
+    const [jour, semaine, mois, annee] = await Promise.all([
       Vente.aggregate([{ "$match": { tenantId, statut: "paye", createdAt: { "$gte": debutJour } } }, { "$group": { _id: null, total: { "$sum": "$montantTotal" }, count: { "$sum": 1 } } }]),
+      Vente.aggregate([{ "$match": { tenantId, statut: "paye", createdAt: { "$gte": debutSemaine } } }, { "$group": { _id: null, total: { "$sum": "$montantTotal" }, count: { "$sum": 1 } } }]),
       Vente.aggregate([{ "$match": { tenantId, statut: "paye", createdAt: { "$gte": debutMois } } }, { "$group": { _id: null, total: { "$sum": "$montantTotal" }, count: { "$sum": 1 } } }]),
       Vente.aggregate([{ "$match": { tenantId, statut: "paye", createdAt: { "$gte": debutAnnee } } }, { "$group": { _id: null, total: { "$sum": "$montantTotal" }, count: { "$sum": 1 } } }])
     ]);
 
-    res.json({ success: true, data: { jour: { total: jour[0]?.total || 0, ventes: jour[0]?.count || 0 }, mois: { total: mois[0]?.total || 0, ventes: mois[0]?.count || 0 }, annee: { total: annee[0]?.total || 0, ventes: annee[0]?.count || 0 } } });
+    res.json({ success: true, data: { jour: { total: jour[0]?.total || 0, ventes: jour[0]?.count || 0 }, semaine: { total: semaine[0]?.total || 0, ventes: semaine[0]?.count || 0 }, mois: { total: mois[0]?.total || 0, ventes: mois[0]?.count || 0 }, annee: { total: annee[0]?.total || 0, ventes: annee[0]?.count || 0 } } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

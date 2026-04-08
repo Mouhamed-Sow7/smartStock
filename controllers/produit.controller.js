@@ -1,23 +1,14 @@
 const Produit = require("../models/produit.model");
+const bwipjs = require("bwip-js");
 
 // GET /api/produits
 const getProduits = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
-
-    const produits = await Produit.find({
-      tenantId,
-    });
-
-    res.json({
-      success: true,
-      data: produits,
-    });
+    const produits = await Produit.find({ tenantId });
+    res.json({ success: true, data: produits });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -25,28 +16,50 @@ const getProduits = async (req, res) => {
 const getProduitById = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
+    const produit = await Produit.findOne({ _id: req.params.id, tenantId });
+    if (!produit) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Produit non trouvé" });
+    }
+    res.json({ success: true, data: produit });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-    const produit = await Produit.findOne({
-      _id: req.params.id,
-      tenantId,
-    });
+// GET /api/produits/:id/barcode - Génère une image PNG du code-barres
+const getBarcode = async (req, res) => {
+  try {
+    const tenantId = req.tenantId || "default";
+    const produit = await Produit.findOne({ _id: req.params.id, tenantId });
 
     if (!produit) {
-      return res.status(404).json({
-        success: false,
-        message: "Produit non trouvé",
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Produit non trouvé" });
     }
 
-    res.json({
-      success: true,
-      data: produit,
+    if (!produit.codeBarres) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Ce produit n'a pas de code-barres" });
+    }
+
+    const png = await bwipjs.toBuffer({
+      bcid: "code128",
+      text: produit.codeBarres,
+      scale: 3,
+      height: 10,
+      includetext: true,
+      textxalign: "center",
     });
+
+    res.type("png");
+    res.send(png);
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    console.error("Erreur génération code-barres:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -54,9 +67,9 @@ const getProduitById = async (req, res) => {
 const createProduit = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
+    let { codeBarres, ...rest } = req.body;
 
     // Génération automatique du code-barres si absent
-    let { codeBarres, ...rest } = req.body;
     if (!codeBarres || codeBarres.trim() === "") {
       codeBarres = `SS-${Date.now()}`;
     }
@@ -70,21 +83,10 @@ const createProduit = async (req, res) => {
       });
     }
 
-    const produit = await Produit.create({
-      ...rest,
-      codeBarres,
-      tenantId,
-    });
-
-    res.status(201).json({
-      success: true,
-      data: produit,
-    });
+    const produit = await Produit.create({ ...rest, codeBarres, tenantId });
+    res.status(201).json({ success: true, data: produit });
   } catch (err) {
-    res.status(400).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(400).json({ success: false, message: err.message });
   }
 };
 
@@ -92,35 +94,20 @@ const createProduit = async (req, res) => {
 const updateProduit = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
-
     const produit = await Produit.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        tenantId,
-      },
+      { _id: req.params.id, tenantId },
       req.body,
-      {
-        new: true,
-        runValidators: true,
-      },
+      { new: true, runValidators: true },
     );
 
     if (!produit) {
-      return res.status(404).json({
-        success: false,
-        message: "Produit non trouvé",
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Produit non trouvé" });
     }
-
-    res.json({
-      success: true,
-      data: produit,
-    });
+    res.json({ success: true, data: produit });
   } catch (err) {
-    res.status(400).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(400).json({ success: false, message: err.message });
   }
 };
 
@@ -128,28 +115,19 @@ const updateProduit = async (req, res) => {
 const deleteProduit = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
-
     const produit = await Produit.findOneAndDelete({
       _id: req.params.id,
       tenantId,
     });
 
     if (!produit) {
-      return res.status(404).json({
-        success: false,
-        message: "Produit non trouvé",
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Produit non trouvé" });
     }
-
-    res.json({
-      success: true,
-      message: "Produit supprimé",
-    });
+    res.json({ success: true, message: "Produit supprimé" });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -166,26 +144,20 @@ const updateStock = async (req, res) => {
       });
     }
 
-    const produit = await Produit.findOne({
-      _id: req.params.id,
-      tenantId,
-    });
-
+    const produit = await Produit.findOne({ _id: req.params.id, tenantId });
     if (!produit) {
-      return res.status(404).json({
-        success: false,
-        message: "Produit non trouvé",
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Produit non trouvé" });
     }
 
     if (type === "entree") {
       produit.stock += quantite;
     } else if (type === "sortie") {
       if (produit.stock < quantite) {
-        return res.status(400).json({
-          success: false,
-          message: "Stock insuffisant",
-        });
+        return res
+          .status(400)
+          .json({ success: false, message: "Stock insuffisant" });
       }
       produit.stock -= quantite;
     } else {
@@ -196,16 +168,9 @@ const updateStock = async (req, res) => {
     }
 
     await produit.save();
-
-    res.json({
-      success: true,
-      data: produit,
-    });
+    res.json({ success: true, data: produit });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -216,33 +181,21 @@ const getProduitByCodeBarres = async (req, res) => {
     const { codeBarres } = req.params;
 
     if (!codeBarres) {
-      return res.status(400).json({
-        success: false,
-        message: "Code-barres requis",
-      });
+      return res
+        .status(400)
+        .json({ success: false, message: "Code-barres requis" });
     }
 
-    const produit = await Produit.findOne({
-      codeBarres,
-      tenantId,
-    });
-
+    const produit = await Produit.findOne({ codeBarres, tenantId });
     if (!produit) {
       return res.status(404).json({
         success: false,
         message: "Produit non trouvé pour ce code-barres",
       });
     }
-
-    res.json({
-      success: true,
-      data: produit,
-    });
+    res.json({ success: true, data: produit });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -250,28 +203,20 @@ const getProduitByCodeBarres = async (req, res) => {
 const getProduitsStockBas = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
-
     const produits = await Produit.find({
       tenantId,
       $expr: { $lte: ["$stock", "$seuilAlerte"] },
     });
-
-    res.json({
-      success: true,
-      data: produits,
-      count: produits.length,
-    });
+    res.json({ success: true, data: produits, count: produits.length });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
 module.exports = {
   getProduits,
   getProduitById,
+  getBarcode,
   createProduit,
   updateProduit,
   deleteProduit,

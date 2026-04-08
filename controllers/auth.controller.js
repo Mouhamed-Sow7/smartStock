@@ -1,15 +1,6 @@
 const jwt = require("jsonwebtoken");
-const mongoose = require("mongoose");
-const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  nom: { type: String, required: true },
-  role: { type: String, enum: ["patron", "agent"], required: true },
-  tenantId: { type: String, required: true },
-  actif: { type: Boolean, default: true },
-  createdAt: { type: Date, default: Date.now },
-});
-const User = mongoose.model("User", userSchema);
+const User = require("../models/user.model");
+const bcrypt = require("bcryptjs");
 const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
 const register = async (req, res) => {
   try {
@@ -72,7 +63,8 @@ const login = async (req, res) => {
         .json({ success: false, message: "Email ou mot de passe incorrect" });
     }
     console.log("Utilisateur trouvé:", user.email, "tenantId:", user.tenantId);
-    if (user.password !== password) {
+    const motDePasseValide = await user.verifierMotDePasse(password);
+    if (!motDePasseValide) {
       console.log("Mot de passe incorrect pour:", email);
       return res
         .status(401)

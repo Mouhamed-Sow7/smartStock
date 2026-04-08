@@ -4,6 +4,7 @@ const router = express.Router();
 const {
   getProduits,
   getProduitById,
+  getBarcode,
   createProduit,
   updateProduit,
   deleteProduit,
@@ -17,9 +18,13 @@ router.route("/").get(getProduits).post(createProduit);
 
 // GET scan par code-barres (avant /:id pour éviter les conflits)
 router.route("/scan/:codeBarres").get(getProduitByCodeBarres);
+router.route("/barcode/:codeBarres").get(getProduitByCodeBarres);
 
 // GET alerte stock bas
 router.route("/alerte").get(getProduitsStockBas);
+
+// GET barcode image
+router.route("/:id/barcode").get(getBarcode);
 
 // GET / PUT / DELETE par id
 router
