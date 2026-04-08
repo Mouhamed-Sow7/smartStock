@@ -1,19 +1,15 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/user.model");
-const bcrypt = require("bcryptjs");
 const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
 const register = async (req, res) => {
   try {
     const { email, password, nom, role = "patron" } = req.body;
     const tenantId = req.headers["x-tenant-id"] || "demo-tenant";
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    const existing = await User.findOne({ email });
+    if (existing) {
       return res
         .status(400)
-        .json({
-          success: false,
-          message: "Un utilisateur avec cet email existe déjà",
-        });
+        .json({ success: false, message: "Email déjà utilisé" });
     }
     const user = new User({ email, password, nom, role, tenantId });
     await user.save();
@@ -31,7 +27,6 @@ const register = async (req, res) => {
       .status(201)
       .json({
         success: true,
-        message: "Compte créé avec succès",
         token,
         user: {
           id: user._id,
@@ -42,30 +37,20 @@ const register = async (req, res) => {
         },
       });
   } catch (err) {
-    console.error("Erreur register:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Erreur lors de la création du compte",
-      });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log("Tentative de connexion:", email);
     const user = await User.findOne({ email });
     if (!user) {
-      console.log("Utilisateur non trouvé:", email);
       return res
         .status(401)
         .json({ success: false, message: "Email ou mot de passe incorrect" });
     }
-    console.log("Utilisateur trouvé:", user.email, "tenantId:", user.tenantId);
-    const motDePasseValide = await user.verifierMotDePasse(password);
-    if (!motDePasseValide) {
-      console.log("Mot de passe incorrect pour:", email);
+    const valide = await user.verifierMotDePasse(password);
+    if (!valide) {
       return res
         .status(401)
         .json({ success: false, message: "Email ou mot de passe incorrect" });
@@ -73,9 +58,8 @@ const login = async (req, res) => {
     if (!user.actif) {
       return res
         .status(403)
-        .json({ success: false, message: "Ce compte est désactivé" });
+        .json({ success: false, message: "Compte désactivé" });
     }
-    console.log("Connexion réussie pour:", email);
     const token = jwt.sign(
       {
         id: user._id,
@@ -88,7 +72,6 @@ const login = async (req, res) => {
     );
     res.json({
       success: true,
-      message: "Connexion réussie",
       token,
       user: {
         id: user._id,
@@ -99,8 +82,7 @@ const login = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Erreur login:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 const getProfile = async (req, res) => {
@@ -113,8 +95,7 @@ const getProfile = async (req, res) => {
     }
     res.json({ success: true, data: user });
   } catch (err) {
-    console.error("Erreur getProfile:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 const createDemoUser = async (req, res) => {
@@ -122,7 +103,6 @@ const createDemoUser = async (req, res) => {
     await User.deleteMany({
       email: { $in: ["patron@demo.com", "agent@demo.com"] },
     });
-
     const patron = new User({
       email: "patron@demo.com",
       password: "demo123",
@@ -143,18 +123,14 @@ const createDemoUser = async (req, res) => {
       .status(201)
       .json({
         success: true,
-        message: "Utilisateurs démo créés avec succès",
+        message: "Utilisateurs démo créés",
         credentials: {
           patron: { email: "patron@demo.com", password: "demo123" },
           agent: { email: "agent@demo.com", password: "demo123" },
         },
       });
   } catch (err) {
-    console.error("Erreur createDemoUser:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 module.exports = { register, login, getProfile, createDemoUser };
