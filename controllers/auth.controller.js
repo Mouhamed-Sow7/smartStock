@@ -119,31 +119,23 @@ const getProfile = async (req, res) => {
 };
 const createDemoUser = async (req, res) => {
   try {
-    const tenantId = "demo-tenant";
-    const existingPatron = await User.findOne({ email: "patron@demo.com" });
-    if (existingPatron) {
-      return res.json({
-        success: true,
-        message: "Utilisateurs démo déjà créés",
-        credentials: {
-          patron: { email: "patron@demo.com", password: "demo123" },
-          agent: { email: "agent@demo.com", password: "demo123" },
-        },
-      });
-    }
+    await User.deleteMany({
+      email: { $in: ["patron@demo.com", "agent@demo.com"] },
+    });
+
     const patron = new User({
       email: "patron@demo.com",
       password: "demo123",
       nom: "Patron Demo",
       role: "patron",
-      tenantId,
+      tenantId: "demo-tenant",
     });
     const agent = new User({
       email: "agent@demo.com",
       password: "demo123",
       nom: "Agent Demo",
       role: "agent",
-      tenantId,
+      tenantId: "demo-tenant",
     });
     await patron.save();
     await agent.save();
@@ -159,12 +151,10 @@ const createDemoUser = async (req, res) => {
       });
   } catch (err) {
     console.error("Erreur createDemoUser:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Erreur lors de la création des utilisateurs démo",
-      });
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 module.exports = { register, login, getProfile, createDemoUser };
