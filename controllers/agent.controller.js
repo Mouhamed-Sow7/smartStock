@@ -4,7 +4,8 @@ const QRCode = require("qrcode");
 // CREATE AGENT + QR
 exports.createAgent = async (req, res) => {
   try {
-    const { tenantId, nom, prenom, telephone, role, boutique } = req.body;
+    const { nom, prenom, telephone, role, boutique } = req.body;
+    const tenantId = req.tenantId;
 
     const agent = new Agent({
       tenantId,
@@ -35,7 +36,7 @@ exports.createAgent = async (req, res) => {
 // GET QR CODE IMAGE
 exports.getQRCodeImage = async (req, res) => {
   try {
-    const agent = await Agent.findById(req.params.id);
+    const agent = await Agent.findOne({ _id: req.params.id, tenantId: req.tenantId });
 
     if (!agent) {
       return res.status(404).json({

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const authMiddleware = require('../middleware/auth.middleware');
 
 const {
   createVente,
@@ -8,6 +9,8 @@ const {
   annulerVente,
   getStats
 } = require('../controllers/vente.controller');
+
+router.use(authMiddleware);
 
 // Stats dashboard (avant /:id pour éviter conflit de route)
 router.route('/stats')

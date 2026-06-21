@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const authMiddleware = require("../middleware/auth.middleware");
 
 const {
   getProduits,
@@ -12,6 +13,8 @@ const {
   getProduitByCodeBarres,
   getProduitsStockBas,
 } = require("../controllers/produit.controller");
+
+router.use(authMiddleware);
 
 // GET / POST
 router.route("/").get(getProduits).post(createProduit);

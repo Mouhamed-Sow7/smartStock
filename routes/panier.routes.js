@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const authMiddleware = require("../middleware/auth.middleware");
 const {
   ajouterProduitPanier,
   getPanierUtilisateur,
@@ -7,6 +8,8 @@ const {
   supprimerProduitPanier,
   modifierQuantiteProduit,
 } = require("../controllers/panier.controller");
+
+router.use(authMiddleware);
 
 // POST /api/panier/add - Ajouter un produit via code-barres
 router.route("/add").post(ajouterProduitPanier);

@@ -1,10 +1,12 @@
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const User = require("../models/user.model");
 const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
 const register = async (req, res) => {
   try {
     const { email, password, nom, role = "patron" } = req.body;
-    const tenantId = req.headers["x-tenant-id"] || "demo-tenant";
+    // tenantId unique généré côté serveur — jamais pris du header/body (falsifiable)
+    const tenantId = `tenant_${crypto.randomUUID().slice(0, 8)}`;
     const existing = await User.findOne({ email });
     if (existing) {
       return res
