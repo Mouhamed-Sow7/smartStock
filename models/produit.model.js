@@ -5,6 +5,7 @@ const produitSchema = new mongoose.Schema(
     tenantId: { type: String, required: true, index: true },
     nom: { type: String, required: true, trim: true },
     prix: { type: Number, required: true, min: 0 },
+    prixAchat: { type: Number, default: 0, min: 0 },
     stock: { type: Number, default: 0, min: 0 },
     seuilAlerte: { type: Number, default: 5 },
     categorie: { type: String, default: "Général" },

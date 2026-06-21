@@ -34,6 +34,7 @@ const createVente = async (req, res) => {
     }
     const agentNom = agent.prenom + " " + agent.nom;
     let montantTotal = 0;
+    let margeTotale = 0;
     const lignes = [];
     for (const item of produits) {
       const produit = await Produit.findOne({ _id: item.produitId, tenantId });
@@ -54,13 +55,18 @@ const createVente = async (req, res) => {
           });
       }
       const sousTotal = produit.prix * item.quantite;
+      const prixAchatUnitaire = produit.prixAchat || 0;
+      const margeLigne = (produit.prix - prixAchatUnitaire) * item.quantite;
       montantTotal += sousTotal;
+      margeTotale += margeLigne;
       lignes.push({
         produitId: produit._id,
         nom: produit.nom,
         prixUnitaire: produit.prix,
+        prixAchatUnitaire,
         quantite: item.quantite,
         sousTotal,
+        margeLigne,
       });
     }
     for (const item of produits) {
@@ -75,6 +81,7 @@ const createVente = async (req, res) => {
       agentNom,
       produits: lignes,
       montantTotal,
+      margeTotale,
       modePaiement: modePaiement || "especes",
       statut: "paye",
       numeroTicket,
@@ -162,7 +169,7 @@ const getStats = async (req, res) => {
     debutSemaine.setHours(0, 0, 0, 0);
     const debutMois = new Date(now.getFullYear(), now.getMonth(), 1);
     const debutAnnee = new Date(now.getFullYear(), 0, 1);
-    const [jour, semaine, mois, annee] = await Promise.all([
+    const [jour, semaine, mois, annee, paiementsMois] = await Promise.all([
       Vente.aggregate([
         {
           $match: { tenantId, statut: "paye", createdAt: { $gte: debutJour } },
@@ -171,6 +178,7 @@ const getStats = async (req, res) => {
           $group: {
             _id: null,
             total: { $sum: "$montantTotal" },
+            marge: { $sum: "$margeTotale" },
             count: { $sum: 1 },
           },
         },
@@ -187,6 +195,7 @@ const getStats = async (req, res) => {
           $group: {
             _id: null,
             total: { $sum: "$montantTotal" },
+            marge: { $sum: "$margeTotale" },
             count: { $sum: 1 },
           },
         },
@@ -199,6 +208,7 @@ const getStats = async (req, res) => {
           $group: {
             _id: null,
             total: { $sum: "$montantTotal" },
+            marge: { $sum: "$margeTotale" },
             count: { $sum: 1 },
           },
         },
@@ -211,21 +221,49 @@ const getStats = async (req, res) => {
           $group: {
             _id: null,
             total: { $sum: "$montantTotal" },
+            marge: { $sum: "$margeTotale" },
             count: { $sum: 1 },
           },
         },
+      ]),
+      Vente.aggregate([
+        {
+          $match: { tenantId, statut: "paye", createdAt: { $gte: debutMois } },
+        },
+        {
+          $group: {
+            _id: "$modePaiement",
+            count: { $sum: 1 },
+            total: { $sum: "$montantTotal" },
+          },
+        },
+        { $sort: { count: -1 } },
       ]),
     ]);
     res.json({
       success: true,
       data: {
-        jour: { total: jour[0]?.total || 0, ventes: jour[0]?.count || 0 },
+        jour: {
+          total: jour[0]?.total || 0,
+          marge: jour[0]?.marge || 0,
+          ventes: jour[0]?.count || 0,
+        },
         semaine: {
           total: semaine[0]?.total || 0,
+          marge: semaine[0]?.marge || 0,
           ventes: semaine[0]?.count || 0,
         },
-        mois: { total: mois[0]?.total || 0, ventes: mois[0]?.count || 0 },
-        annee: { total: annee[0]?.total || 0, ventes: annee[0]?.count || 0 },
+        mois: {
+          total: mois[0]?.total || 0,
+          marge: mois[0]?.marge || 0,
+          ventes: mois[0]?.count || 0,
+        },
+        annee: {
+          total: annee[0]?.total || 0,
+          marge: annee[0]?.marge || 0,
+          ventes: annee[0]?.count || 0,
+        },
+        paiements: paiementsMois,
       },
     });
   } catch (err) {
