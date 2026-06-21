@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema(
     },
     password: { type: String, required: true },
     nom: { type: String, required: true },
+    boutique: { type: String, default: '' },
     role: { type: String, enum: ["patron", "agent"], required: true },
     tenantId: { type: String, required: true },
     actif: { type: Boolean, default: true },

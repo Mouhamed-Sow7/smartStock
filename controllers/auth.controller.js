@@ -79,6 +79,7 @@ const login = async (req, res) => {
         id: user._id,
         email: user.email,
         nom: user.nom,
+        boutique: user.boutique || user.nom,
         role: user.role,
         tenantId: user.tenantId,
       },

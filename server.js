@@ -14,6 +14,8 @@ const panierRoutes = require("./routes/panier.routes");
 console.log(" - panierRoutes chargé");
 const authRoutes = require("./routes/auth.routes");
 console.log(" - authRoutes chargé");
+const adminRoutes = require("./routes/admin.routes");
+console.log(" - adminRoutes chargé");
 console.log("Création de l'application Express...");
 const app = express();
 console.log("Configuration CORS...");
@@ -50,6 +52,7 @@ app.use("/api/ventes", venteRoutes);
 app.use("/api/agents", agentRoutes);
 app.use("/api/panier", panierRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.get("/", (req, res) => {
   res.json({
     message: "Bienvenue sur l'API SmartStock",
