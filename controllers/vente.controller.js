@@ -1,6 +1,5 @@
 const Vente = require("../models/vente.model");
 const Produit = require("../models/produit.model");
-const Agent = require("../models/agent.model");
 const User = require("../models/user.model");
 const genererNumeroTicket = async () => {
   const today = new Date();
@@ -14,50 +13,40 @@ const genererNumeroTicket = async () => {
   return "TK-" + dateStr + "-" + num;
 };
 
-/**
- * Resout l'agent qui effectue la vente, qu'il vienne de la collection Agent
- * (cree par le patron avec QR code, pas de login) ou de la collection User
- * (agent connecte par email/mot de passe, role: "agent"). Les deux collections
- * sont distinctes, donc l'agentId envoye par le frontend (toujours auth.getUser()._id,
- * un User._id) ne correspondait jamais a un document Agent -> 404 systematique.
- */
-const resoudreAgent = async (agentId, tenantId) => {
-  const agent = await Agent.findOne({ _id: agentId, tenantId });
-  if (agent) {
-    return { nom: agent.prenom + " " + agent.nom, actif: agent.actif, _id: agent._id };
-  }
-  const user = await User.findOne({ _id: agentId, tenantId, role: "agent" });
-  if (user) {
-    return { nom: user.nom, actif: user.actif, _id: user._id };
-  }
-  return null;
-};
-
 const createVente = async (req, res) => {
-  const { produits, modePaiement, agentId, note } = req.body;
+  // Le frontend (pos.service.ts + sync.service.ts) envoie le panier sous la cle
+  // "lignes", jamais "produits" — on accepte les deux pour ne plus jamais
+  // depanner ce mismatch silencieusement (ex: "panier vide" alors qu'il est plein).
+  const itemsPanier = req.body.produits || req.body.lignes;
+  const { modePaiement, note } = req.body;
   const tenantId = req.tenantId || "default";
-  if (!produits || produits.length === 0) {
+  if (!itemsPanier || itemsPanier.length === 0) {
     return res
       .status(400)
       .json({ success: false, message: "Le panier est vide" });
   }
   try {
-    const agent = await resoudreAgent(agentId, tenantId);
-    if (!agent) {
+    // L'identite de l'agent vient TOUJOURS du JWT (req.user, pose par
+    // authMiddleware), jamais d'un agentId envoye par le client dans le body:
+    // 1) le frontend ne l'envoie meme pas aujourd'hui (cause du bug "panier vide"),
+    // 2) un agentId client est falsifiable — l'utilisateur authentifie doit etre
+    //    la seule source de verite pour savoir qui a fait la vente.
+    const utilisateur = await User.findOne({ _id: req.user.id, tenantId });
+    if (!utilisateur) {
       return res
         .status(404)
-        .json({ success: false, message: "Agent non trouve" });
+        .json({ success: false, message: "Utilisateur non trouve" });
     }
-    if (!agent.actif) {
+    if (!utilisateur.actif) {
       return res
         .status(403)
-        .json({ success: false, message: "Agent desactive" });
+        .json({ success: false, message: "Compte desactive" });
     }
-    const agentNom = agent.nom;
+    const agentNom = utilisateur.nom;
     let montantTotal = 0;
     let margeTotale = 0;
     const lignes = [];
-    for (const item of produits) {
+    for (const item of itemsPanier) {
       const produit = await Produit.findOne({ _id: item.produitId, tenantId });
       if (!produit) {
         return res
@@ -90,7 +79,7 @@ const createVente = async (req, res) => {
         margeLigne,
       });
     }
-    for (const item of produits) {
+    for (const item of itemsPanier) {
       await Produit.findByIdAndUpdate(item.produitId, {
         $inc: { stock: -item.quantite },
       });
@@ -98,7 +87,7 @@ const createVente = async (req, res) => {
     const numeroTicket = await genererNumeroTicket();
     const vente = await Vente.create({
       tenantId,
-      agentId: agent._id,
+      agentId: utilisateur._id,
       agentNom,
       produits: lignes,
       montantTotal,
