@@ -1,4 +1,5 @@
 const User = require('../models/user.model');
+const Vente = require('../models/vente.model');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
@@ -81,5 +82,16 @@ exports.globalStats = async (req, res) => {
       User.countDocuments({ role: 'patron', actif: false }),
     ]);
     res.json({ success: true, data: { totalPatrons, actifs, inactifs } });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// Purger toutes les ventes (reset complet pour repartir de zero en test).
+// Optionnel: ?tenantId=xxx pour ne purger qu'un seul espace patron.
+exports.purgeVentes = async (req, res) => {
+  try {
+    const { tenantId } = req.query;
+    const filtre = tenantId ? { tenantId } : {};
+    const result = await Vente.deleteMany(filtre);
+    res.json({ success: true, message: `${result.deletedCount} vente(s) supprimee(s)`, deletedCount: result.deletedCount });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
