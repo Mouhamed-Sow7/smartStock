@@ -1,6 +1,7 @@
 const Vente = require("../models/vente.model");
 const Produit = require("../models/produit.model");
 const Agent = require("../models/agent.model");
+const User = require("../models/user.model");
 const genererNumeroTicket = async () => {
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
@@ -12,6 +13,26 @@ const genererNumeroTicket = async () => {
   const num = String(count + 1).padStart(4, "0");
   return "TK-" + dateStr + "-" + num;
 };
+
+/**
+ * Resout l'agent qui effectue la vente, qu'il vienne de la collection Agent
+ * (cree par le patron avec QR code, pas de login) ou de la collection User
+ * (agent connecte par email/mot de passe, role: "agent"). Les deux collections
+ * sont distinctes, donc l'agentId envoye par le frontend (toujours auth.getUser()._id,
+ * un User._id) ne correspondait jamais a un document Agent -> 404 systematique.
+ */
+const resoudreAgent = async (agentId, tenantId) => {
+  const agent = await Agent.findOne({ _id: agentId, tenantId });
+  if (agent) {
+    return { nom: agent.prenom + " " + agent.nom, actif: agent.actif, _id: agent._id };
+  }
+  const user = await User.findOne({ _id: agentId, tenantId, role: "agent" });
+  if (user) {
+    return { nom: user.nom, actif: user.actif, _id: user._id };
+  }
+  return null;
+};
+
 const createVente = async (req, res) => {
   const { produits, modePaiement, agentId, note } = req.body;
   const tenantId = req.tenantId || "default";
@@ -21,7 +42,7 @@ const createVente = async (req, res) => {
       .json({ success: false, message: "Le panier est vide" });
   }
   try {
-    const agent = await Agent.findById(agentId);
+    const agent = await resoudreAgent(agentId, tenantId);
     if (!agent) {
       return res
         .status(404)
@@ -32,7 +53,7 @@ const createVente = async (req, res) => {
         .status(403)
         .json({ success: false, message: "Agent desactive" });
     }
-    const agentNom = agent.prenom + " " + agent.nom;
+    const agentNom = agent.nom;
     let montantTotal = 0;
     let margeTotale = 0;
     const lignes = [];
