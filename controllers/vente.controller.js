@@ -1,6 +1,7 @@
 const Vente = require("../models/vente.model");
 const Produit = require("../models/produit.model");
 const Agent = require("../models/agent.model");
+const User = require("../models/user.model");
 const genererNumeroTicket = async () => {
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
@@ -21,18 +22,27 @@ const createVente = async (req, res) => {
       .json({ success: false, message: "Le panier est vide" });
   }
   try {
-    const agent = await Agent.findById(agentId);
-    if (!agent) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Agent non trouve" });
+    // Résoudre l'agent : peut être un Agent (QR code) OU un User (login email/password)
+    let agentNom = "Inconnu";
+    if (agentId) {
+      const agentDoc = await Agent.findById(agentId).catch(() => null);
+      if (agentDoc) {
+        if (!agentDoc.actif) {
+          return res.status(403).json({ success: false, message: "Agent desactive" });
+        }
+        agentNom = (agentDoc.prenom + " " + agentDoc.nom).trim();
+      } else {
+        // Fallback: chercher dans User (agent connecté via email/password)
+        const userDoc = await User.findOne({ _id: agentId, tenantId, role: "agent" }).catch(() => null);
+        if (userDoc) {
+          if (!userDoc.actif) {
+            return res.status(403).json({ success: false, message: "Agent desactive" });
+          }
+          agentNom = userDoc.nom || userDoc.email;
+        }
+        // Si ni Agent ni User trouvé, on continue quand même avec "Inconnu" (ne pas bloquer la vente)
+      }
     }
-    if (!agent.actif) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Agent desactive" });
-    }
-    const agentNom = agent.prenom + " " + agent.nom;
     let montantTotal = 0;
     let margeTotale = 0;
     const lignes = [];

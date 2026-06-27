@@ -44,33 +44,30 @@ const register = async (req, res) => {
 };
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const { email, telephone, password } = req.body;
+    if (!password) return res.status(400).json({ success: false, message: 'Mot de passe requis' });
+
+    // Chercher par email OU téléphone
+    let user = null;
+    if (email) {
+      user = await User.findOne({ email: email.toLowerCase().trim() });
+    } else if (telephone) {
+      user = await User.findOne({ telephone: telephone.trim(), role: 'agent' });
+    }
     if (!user) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Email ou mot de passe incorrect" });
+      return res.status(401).json({ success: false, message: 'Identifiant ou mot de passe incorrect' });
     }
     const valide = await user.verifierMotDePasse(password);
     if (!valide) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Email ou mot de passe incorrect" });
+      return res.status(401).json({ success: false, message: 'Identifiant ou mot de passe incorrect' });
     }
     if (!user.actif) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Compte désactivé" });
+      return res.status(403).json({ success: false, message: 'Compte désactivé' });
     }
     const token = jwt.sign(
-      {
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        tenantId: user.tenantId,
-      },
+      { id: user._id, email: user.email, role: user.role, tenantId: user.tenantId, boutiqueId: user.boutiqueId },
       JWT_SECRET,
-      { expiresIn: "7d" },
+      { expiresIn: '7d' },
     );
     res.json({
       success: true,
@@ -78,8 +75,11 @@ const login = async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
+        telephone: user.telephone,
         nom: user.nom,
+        prenom: user.prenom,
         boutique: user.boutique || user.nom,
+        boutiqueId: user.boutiqueId,
         role: user.role,
         tenantId: user.tenantId,
       },
