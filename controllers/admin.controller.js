@@ -1,4 +1,5 @@
 const User = require('../models/user.model');
+const Vente = require('../models/vente.model');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
@@ -72,6 +73,35 @@ exports.deleteUser = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
+// Modifier nom / email / boutique d'un utilisateur (patron OU agent)
+exports.editUser = async (req, res) => {
+  try {
+    const { nom, email, boutique } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ success: false, message: 'Introuvable' });
+
+    if (email && email !== user.email) {
+      const exists = await User.findOne({ email, _id: { $ne: user._id } });
+      if (exists) return res.status(400).json({ success: false, message: 'Email déjà utilisé par un autre compte' });
+      user.email = email;
+    }
+    if (nom) user.nom = nom;
+    if (boutique !== undefined) user.boutique = boutique;
+
+    await user.save();
+    res.json({ success: true, data: { id: user._id, nom: user.nom, email: user.email, boutique: user.boutique } });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// Lister l'equipe complete d'une boutique (le patron + tous ses agents, meme tenantId)
+exports.getTeam = async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const team = await User.find({ tenantId }).select('-password').sort({ role: 1, createdAt: 1 });
+    res.json({ success: true, data: team });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
 // Stats globales
 exports.globalStats = async (req, res) => {
   try {
@@ -81,5 +111,16 @@ exports.globalStats = async (req, res) => {
       User.countDocuments({ role: 'patron', actif: false }),
     ]);
     res.json({ success: true, data: { totalPatrons, actifs, inactifs } });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// Purger toutes les ventes (reset complet pour repartir de zero en test).
+// Optionnel: ?tenantId=xxx pour ne purger qu'un seul espace patron.
+exports.purgeVentes = async (req, res) => {
+  try {
+    const { tenantId } = req.query;
+    const filtre = tenantId ? { tenantId } : {};
+    const result = await Vente.deleteMany(filtre);
+    res.json({ success: true, message: `${result.deletedCount} vente(s) supprimee(s)`, deletedCount: result.deletedCount });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };

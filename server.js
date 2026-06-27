@@ -35,7 +35,7 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-tenant-id"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-tenant-id", "x-admin-key"],
   }),
 );
 app.use(express.json());

@@ -1,6 +1,5 @@
 const Vente = require("../models/vente.model");
 const Produit = require("../models/produit.model");
-const Agent = require("../models/agent.model");
 const User = require("../models/user.model");
 const genererNumeroTicket = async () => {
   const today = new Date();
@@ -13,40 +12,41 @@ const genererNumeroTicket = async () => {
   const num = String(count + 1).padStart(4, "0");
   return "TK-" + dateStr + "-" + num;
 };
+
 const createVente = async (req, res) => {
-  const { produits, modePaiement, agentId, note } = req.body;
+  // Le frontend (pos.service.ts + sync.service.ts) envoie le panier sous la cle
+  // "lignes", jamais "produits" — on accepte les deux pour ne plus jamais
+  // depanner ce mismatch silencieusement (ex: "panier vide" alors qu'il est plein).
+  const itemsPanier = req.body.produits || req.body.lignes;
+  const { modePaiement, note } = req.body;
   const tenantId = req.tenantId || "default";
-  if (!produits || produits.length === 0) {
+  if (!itemsPanier || itemsPanier.length === 0) {
     return res
       .status(400)
       .json({ success: false, message: "Le panier est vide" });
   }
   try {
-    // Résoudre l'agent : peut être un Agent (QR code) OU un User (login email/password)
-    let agentNom = "Inconnu";
-    if (agentId) {
-      const agentDoc = await Agent.findById(agentId).catch(() => null);
-      if (agentDoc) {
-        if (!agentDoc.actif) {
-          return res.status(403).json({ success: false, message: "Agent desactive" });
-        }
-        agentNom = (agentDoc.prenom + " " + agentDoc.nom).trim();
-      } else {
-        // Fallback: chercher dans User (agent connecté via email/password)
-        const userDoc = await User.findOne({ _id: agentId, tenantId, role: "agent" }).catch(() => null);
-        if (userDoc) {
-          if (!userDoc.actif) {
-            return res.status(403).json({ success: false, message: "Agent desactive" });
-          }
-          agentNom = userDoc.nom || userDoc.email;
-        }
-        // Si ni Agent ni User trouvé, on continue quand même avec "Inconnu" (ne pas bloquer la vente)
-      }
+    // L'identite de l'agent vient TOUJOURS du JWT (req.user, pose par
+    // authMiddleware), jamais d'un agentId envoye par le client dans le body:
+    // 1) le frontend ne l'envoie meme pas aujourd'hui (cause du bug "panier vide"),
+    // 2) un agentId client est falsifiable — l'utilisateur authentifie doit etre
+    //    la seule source de verite pour savoir qui a fait la vente.
+    const utilisateur = await User.findOne({ _id: req.user.id, tenantId });
+    if (!utilisateur) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Utilisateur non trouve" });
     }
+    if (!utilisateur.actif) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Compte desactive" });
+    }
+    const agentNom = utilisateur.nom;
     let montantTotal = 0;
     let margeTotale = 0;
     const lignes = [];
-    for (const item of produits) {
+    for (const item of itemsPanier) {
       const produit = await Produit.findOne({ _id: item.produitId, tenantId });
       if (!produit) {
         return res
@@ -79,7 +79,7 @@ const createVente = async (req, res) => {
         margeLigne,
       });
     }
-    for (const item of produits) {
+    for (const item of itemsPanier) {
       await Produit.findByIdAndUpdate(item.produitId, {
         $inc: { stock: -item.quantite },
       });
@@ -87,7 +87,7 @@ const createVente = async (req, res) => {
     const numeroTicket = await genererNumeroTicket();
     const vente = await Vente.create({
       tenantId,
-      agentId: agent._id,
+      agentId: utilisateur._id,
       agentNom,
       produits: lignes,
       montantTotal,
