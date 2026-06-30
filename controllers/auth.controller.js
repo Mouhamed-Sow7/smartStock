@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const User = require("../models/user.model");
+const { normaliserTelephone } = require("../utils/phone");
 const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
 const register = async (req, res) => {
   try {
@@ -47,12 +48,16 @@ const login = async (req, res) => {
     const { email, telephone, password } = req.body;
     if (!password) return res.status(400).json({ success: false, message: 'Mot de passe requis' });
 
-    // Chercher par email OU téléphone
+    // Chercher par email OU téléphone (normalisé, peu importe le format tapé)
     let user = null;
     if (email) {
       user = await User.findOne({ email: email.toLowerCase().trim() });
     } else if (telephone) {
-      user = await User.findOne({ telephone: telephone.trim(), role: 'agent' });
+      const telNormalise = normaliserTelephone(telephone);
+      if (!telNormalise) {
+        return res.status(401).json({ success: false, message: 'Numéro de téléphone invalide' });
+      }
+      user = await User.findOne({ telephone: telNormalise, role: 'agent' });
     }
     if (!user) {
       return res.status(401).json({ success: false, message: 'Identifiant ou mot de passe incorrect' });
@@ -136,4 +141,28 @@ const createDemoUser = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-module.exports = { register, login, getProfile, createDemoUser };
+const changerMonMotDePasse = async (req, res) => {
+  try {
+    const { ancienMotDePasse, nouveauMotDePasse } = req.body;
+    if (!ancienMotDePasse || !nouveauMotDePasse) {
+      return res.status(400).json({ success: false, message: 'Ancien et nouveau mot de passe requis' });
+    }
+    if (nouveauMotDePasse.length < 6) {
+      return res.status(400).json({ success: false, message: 'Le nouveau mot de passe doit faire au moins 6 caractères' });
+    }
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
+
+    const valide = await user.verifierMotDePasse(ancienMotDePasse);
+    if (!valide) {
+      return res.status(401).json({ success: false, message: 'Ancien mot de passe incorrect' });
+    }
+    user.password = nouveauMotDePasse; // pre-save hook hash automatiquement
+    await user.save();
+    res.json({ success: true, message: 'Mot de passe modifié avec succès' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+module.exports = { register, login, getProfile, createDemoUser, changerMonMotDePasse };

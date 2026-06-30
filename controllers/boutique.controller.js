@@ -2,6 +2,8 @@ const Boutique = require('../models/boutique.model');
 const User     = require('../models/user.model');
 const bcrypt   = require('bcryptjs');
 const crypto   = require('crypto');
+const { normaliserTelephone, formaterTelephoneAffichage } = require('../utils/phone');
+const { genererMotDePasse } = require('../utils/password');
 
 // Générer un slug unique à partir du nom
 async function genererSlug(base) {
@@ -92,7 +94,26 @@ exports.creerAgent = async (req, res) => {
     const boutique = await Boutique.findOne({ _id: req.params.id, tenantId: req.tenantId });
     if (!boutique) return res.status(404).json({ success: false, message: 'Boutique introuvable' });
 
-    // Email format : prenom.nom@slug.sm  (ou telephone si pas de prenom/nom valides)
+    // Normaliser le téléphone si fourni — rejette silencieusement les formats invalides
+    // (l'agent pourra toujours se connecter par email, le téléphone reste optionnel)
+    let telephoneNormalise = '';
+    if (telephone && telephone.trim()) {
+      const normalise = normaliserTelephone(telephone);
+      if (!normalise) {
+        return res.status(400).json({
+          success: false,
+          message: "Numéro de téléphone invalide. Format attendu : préfixe 70/75/76/77/78, avec ou sans indicatif 221.",
+        });
+      }
+      // Un téléphone ne peut servir d'identifiant qu'à un seul agent
+      const telExists = await User.findOne({ telephone: normalise, role: 'agent' });
+      if (telExists) {
+        return res.status(400).json({ success: false, message: 'Ce numéro de téléphone est déjà utilisé par un autre agent' });
+      }
+      telephoneNormalise = normalise;
+    }
+
+    // Email format : prenom.nom@slug.sm
     const prenomSlug = (prenom || 'agent').toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
     const nomSlug    = nom.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
     let email = `${prenomSlug}.${nomSlug}@${boutique.slug}.sm`;
@@ -104,12 +125,13 @@ exports.creerAgent = async (req, res) => {
       email = `${prenomSlug}.${nomSlug}.${rand}@${boutique.slug}.sm`;
     }
 
-    // Mot de passe par défaut = téléphone ou "smartstock2024"
-    const defaultPassword = telephone || 'smartstock2024';
+    // Mot de passe aléatoire fort (jamais le numéro de téléphone — sécurité)
+    const motDePasseGenere = genererMotDePasse(9);
 
     const agent = new User({
-      email, telephone: telephone || '',
-      password: defaultPassword,
+      email,
+      telephone: telephoneNormalise,
+      password: motDePasseGenere,
       nom, prenom: prenom || '',
       boutique: boutique.nom,
       boutiqueId: boutique._id,
@@ -117,6 +139,8 @@ exports.creerAgent = async (req, res) => {
       tenantId: req.tenantId,
     });
     await agent.save();
+
+    const telephoneAffiche = telephoneNormalise ? formaterTelephoneAffichage(telephoneNormalise) : '';
 
     res.status(201).json({
       success: true,
@@ -127,9 +151,11 @@ exports.creerAgent = async (req, res) => {
         prenom: agent.prenom,
         boutique: boutique.nom,
         boutiqueId: boutique._id,
-        telephone: agent.telephone,
-        defaultPassword,
-        loginInfo: `Email: ${email} | Mot de passe: ${defaultPassword}`,
+        telephone: telephoneAffiche,
+        motDePasseGenere,
+        loginInfo: telephoneAffiche
+          ? `Connexion par email: ${email}  OU  téléphone: ${telephoneAffiche}\nMot de passe: ${motDePasseGenere}`
+          : `Connexion par email: ${email}\nMot de passe: ${motDePasseGenere}`,
       }
     });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
