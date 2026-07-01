@@ -174,8 +174,6 @@ exports.toggleAgent = async (req, res) => {
 
 // PATCH /api/boutiques/agents/:agentId/reset-password
 exports.resetPasswordAgent = async (req, res) => {
-  // LOG DE VERSION — commit e279097+ — AUCUN newPassword requis dans le body
-  console.log('[resetPasswordAgent] v2 - agentId:', req.params.agentId, '- body:', JSON.stringify(req.body));
   try {
     const agent = await User.findOne({ _id: req.params.agentId, tenantId: req.tenantId, role: 'agent' });
     if (!agent) return res.status(404).json({ success: false, message: 'Agent introuvable' });

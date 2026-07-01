@@ -38,15 +38,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "x-tenant-id", "x-admin-key"],
   }),
 );
-app.get('/debug-reset', (req, res) => {
-  res.json({
-    version: 'e279097+',
-    resetEndpoint: 'PATCH /api/boutiques/agents/:agentId/reset-password',
-    requiresBody: false,
-    generatesPassword: true,
-    timestamp: new Date().toISOString(),
-  });
-});
 app.use(express.json());
 app.get("/ping", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
