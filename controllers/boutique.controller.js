@@ -174,16 +174,22 @@ exports.toggleAgent = async (req, res) => {
 
 // PATCH /api/boutiques/agents/:agentId/reset-password
 exports.resetPasswordAgent = async (req, res) => {
+  // LOG DE VERSION — commit e279097+ — AUCUN newPassword requis dans le body
+  console.log('[resetPasswordAgent] v2 - agentId:', req.params.agentId, '- body:', JSON.stringify(req.body));
   try {
-    const { newPassword } = req.body;
-    if (!newPassword || newPassword.length < 4) {
-      return res.status(400).json({ success: false, message: 'Mot de passe trop court (min 4)' });
-    }
     const agent = await User.findOne({ _id: req.params.agentId, tenantId: req.tenantId, role: 'agent' });
     if (!agent) return res.status(404).json({ success: false, message: 'Agent introuvable' });
-    agent.password = newPassword; // pre-save hook hash automatiquement
+    const motDePasseGenere = genererMotDePasse(9);
+    agent.password = motDePasseGenere; // pre-save hook hash automatiquement
     await agent.save();
-    res.json({ success: true, message: 'Mot de passe réinitialisé' });
+    res.json({
+      success: true,
+      message: 'Mot de passe réinitialisé',
+      data: {
+        motDePasseGenere,
+        loginInfo: `Connexion par email: ${agent.email}\nMot de passe: ${motDePasseGenere}`,
+      },
+    });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
