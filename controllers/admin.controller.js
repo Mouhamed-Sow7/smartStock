@@ -124,3 +124,29 @@ exports.purgeVentes = async (req, res) => {
     res.json({ success: true, message: `${result.deletedCount} vente(s) supprimee(s)`, deletedCount: result.deletedCount });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
+
+// DEBUG TEMPORAIRE — lister les agents avec leur téléphone stocké (pas de password)
+exports.debugAgents = async (req, res) => {
+  try {
+    const agents = await User.find({ role: 'agent' })
+      .select('nom prenom email telephone actif tenantId createdAt')
+      .sort({ createdAt: -1 })
+      .limit(20);
+    res.json({ success: true, data: agents });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// Reset password agent par son email (depuis l'admin panel — déblocage)
+exports.resetPasswordByEmail = async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    if (!email || !newPassword) {
+      return res.status(400).json({ success: false, message: 'email et newPassword requis' });
+    }
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
+    user.password = newPassword;
+    await user.save(); // pre-save hook hash automatiquement
+    res.json({ success: true, message: `Mot de passe réinitialisé pour ${user.nom}`, data: { email: user.email, role: user.role } });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
