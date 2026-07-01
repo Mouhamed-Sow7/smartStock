@@ -10,6 +10,13 @@ const {
 // Toutes les routes sont protégées
 router.use(auth);
 
+// ── Routes agents (AVANT /:id pour éviter le conflit Express) ──
+// Express matche dans l'ordre — /agents/:agentId doit être déclaré avant /:id
+// sinon "agents" est capturé comme valeur de ":id"
+router.patch('/agents/:agentId/toggle',          toggleAgent);
+router.patch('/agents/:agentId/reset-password',  resetPasswordAgent);
+router.delete('/agents/:agentId',                supprimerAgent);
+
 // ── Boutiques ──
 router.get('/',      listBoutiques);
 router.post('/',     creerBoutique);
@@ -19,10 +26,5 @@ router.delete('/:id',supprimerBoutique);
 // ── Agents par boutique ──
 router.get('/:id/agents',  getAgentsBoutique);
 router.post('/:id/agents', creerAgent);
-
-// ── Actions agent (indépendant de la boutique) ──
-router.patch('/agents/:agentId/toggle',          toggleAgent);
-router.patch('/agents/:agentId/reset-password',  resetPasswordAgent);
-router.delete('/agents/:agentId',                supprimerAgent);
 
 module.exports = router;
