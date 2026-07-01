@@ -104,14 +104,21 @@ const createVente = async (req, res) => {
 };
 const getVentes = async (req, res) => {
   try {
-    const { debut, fin, agentId, modePaiement } = req.query;
+    const { debut, fin, agentId, modePaiement, boutiqueId } = req.query;
     const filtre = { tenantId: req.tenantId || "default" };
     if (debut || fin) {
       filtre.createdAt = {};
       if (debut) filtre.createdAt["$gte"] = new Date(debut);
       if (fin) filtre.createdAt["$lte"] = new Date(fin);
     }
-    if (agentId) filtre.agentId = agentId;
+    if (agentId) {
+      filtre.agentId = agentId;
+    } else if (boutiqueId) {
+      // Filtre par boutique : recuperer les agents de cette boutique et filtrer les ventes
+      const User = require('../models/user.model');
+      const agents = await User.find({ boutiqueId, tenantId: req.tenantId, role: 'agent' }).select('_id');
+      filtre.agentId = { $in: agents.map(a => a._id.toString()) };
+    }
     if (modePaiement) filtre.modePaiement = modePaiement;
     const ventes = await Vente.find(filtre).sort({ createdAt: -1 });
     res.json({ success: true, data: ventes, count: ventes.length });
