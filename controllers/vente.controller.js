@@ -181,9 +181,16 @@ const getStats = async (req, res) => {
       now.getMonth(),
       now.getDate(),
     );
-    const debutSemaine = new Date(now);
-    debutSemaine.setDate(now.getDate() - now.getDay());
-    debutSemaine.setHours(0, 0, 0, 0);
+
+    // Semaine : du lundi au dimanche (standard FR/SN)
+    // getDay() : 0=dim, 1=lun ... 6=sam
+    // On ramène à lundi : si dimanche (0) → recule 6 jours, sinon recule (getDay - 1) jours
+    const debutSemaine = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const jourSemaine = now.getDay(); // 0=dim
+    const reculLundi = jourSemaine === 0 ? 6 : jourSemaine - 1;
+    debutSemaine.setDate(debutSemaine.getDate() - reculLundi);
+    // debutSemaine est déjà à minuit grâce au constructeur Date(y,m,d)
+
     const debutMois = new Date(now.getFullYear(), now.getMonth(), 1);
     const debutAnnee = new Date(now.getFullYear(), 0, 1);
     const [jour, semaine, mois, annee, paiementsMois] = await Promise.all([
