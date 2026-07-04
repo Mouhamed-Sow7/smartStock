@@ -2,6 +2,7 @@ const User = require('../models/user.model');
 const Vente = require('../models/vente.model');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { genererMotDePasse } = require('../utils/password');
 
 const ADMIN_KEY = process.env.ADMIN_SECRET_KEY || 'smartstock-admin-2024';
 
@@ -102,15 +103,37 @@ exports.getTeam = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// Stats globales
+// Stats globales enrichies
 exports.globalStats = async (req, res) => {
   try {
-    const [totalPatrons, actifs, inactifs] = await Promise.all([
+    const now = new Date();
+    const debut30j = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
+
+    const [totalPatrons, actifs, inactifs, totalAgents, totalVentes, stats30j] = await Promise.all([
       User.countDocuments({ role: 'patron' }),
       User.countDocuments({ role: 'patron', actif: true }),
       User.countDocuments({ role: 'patron', actif: false }),
+      User.countDocuments({ role: 'agent' }),
+      Vente.countDocuments({}),
+      Vente.aggregate([
+        { $match: { createdAt: { $gte: debut30j }, statut: 'paye' } },
+        { $group: { _id: null, ca: { $sum: '$montantTotal' }, count: { $sum: 1 } } }
+      ])
     ]);
-    res.json({ success: true, data: { totalPatrons, actifs, inactifs } });
+
+    const ca30j = stats30j[0]?.ca || 0;
+    const ventes30j = stats30j[0]?.count || 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalPatrons, actifs, inactifs,
+        totalAgents,
+        totalVentes,
+        ca30j,       // chiffre d'affaires global toutes boutiques sur 30 jours
+        ventes30j,   // nb ventes sur 30 jours
+      }
+    });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
@@ -140,13 +163,24 @@ exports.debugAgents = async (req, res) => {
 exports.resetPasswordByEmail = async (req, res) => {
   try {
     const { email, newPassword } = req.body;
-    if (!email || !newPassword) {
-      return res.status(400).json({ success: false, message: 'email et newPassword requis' });
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'email requis' });
     }
     const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
-    user.password = newPassword;
+
+    // Si un mot de passe manuel est fourni (depuis l'ancienne UI), l'utiliser.
+    // Sinon générer automatiquement — cohérent avec la création d'agent.
+    const motDePasse = newPassword && newPassword.length >= 4
+      ? newPassword
+      : genererMotDePasse(9);
+
+    user.password = motDePasse;
     await user.save(); // pre-save hook hash automatiquement
-    res.json({ success: true, message: `Mot de passe réinitialisé pour ${user.nom}`, data: { email: user.email, role: user.role } });
+    res.json({
+      success: true,
+      message: `Mot de passe réinitialisé pour ${user.nom}`,
+      data: { email: user.email, role: user.role, motDePasseGenere: motDePasse }
+    });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
