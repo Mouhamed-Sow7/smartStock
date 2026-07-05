@@ -135,3 +135,34 @@ exports.scanAgent = async (req, res) => {
     });
   }
 };
+
+// PATCH /api/agents/:id — modifier nom, prenom, telephone + reset optionnel mot de passe
+exports.updateAgent = async (req, res) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, tenantId: req.tenantId });
+    if (!agent) return res.status(404).json({ success: false, message: 'Agent non trouvé' });
+
+    const { nom, prenom, telephone, resetPassword } = req.body;
+    if (nom)       agent.nom       = nom;
+    if (prenom)    agent.prenom    = prenom;
+    if (telephone) agent.telephone = telephone;
+
+    let nouveauMotDePasse = null;
+    if (resetPassword) {
+      const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+      nouveauMotDePasse = Array.from({ length: 8 }, () =>
+        chars[Math.floor(Math.random() * chars.length)]
+      ).join('');
+      agent.password = nouveauMotDePasse;
+    }
+
+    await agent.save();
+    res.json({
+      success: true,
+      data: agent,
+      ...(nouveauMotDePasse ? { nouveauMotDePasse } : {}),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

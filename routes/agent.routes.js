@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createAgent, getAgents, toggleAgent, deleteAgent, getQRCodeImage, scanAgent } = require('../controllers/agent.controller');
+const { createAgent, getAgents, toggleAgent, deleteAgent, getQRCodeImage, scanAgent, updateAgent } = require('../controllers/agent.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 
 // LIST agents — réservé au patron
@@ -8,6 +8,9 @@ router.get('/', authMiddleware, getAgents);
 
 // CREATE agent — réservé au patron authentifié, tenantId pris du token (pas du body)
 router.post('/', authMiddleware, createAgent);
+
+// UPDATE agent (nom, prenom, telephone, reset password)
+router.patch('/:id', authMiddleware, updateAgent);
 
 // TOGGLE actif/inactif
 router.patch('/:id/toggle', authMiddleware, toggleAgent);
