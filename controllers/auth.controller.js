@@ -5,24 +5,40 @@ const { normaliserTelephone } = require("../utils/phone");
 const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
 const register = async (req, res) => {
   try {
-    const { email, password, nom, boutique, role = "patron" } = req.body;
+    const { email, password, nom, boutique, telephone, role = "patron" } = req.body;
     if (!email || !password || !nom) {
       return res.status(400).json({ success: false, message: "Nom, email et mot de passe requis" });
     }
     if (password.length < 6) {
       return res.status(400).json({ success: false, message: "Mot de passe trop court (min 6 caractères)" });
     }
-    // tenantId unique généré côté serveur — jamais pris du header/body (falsifiable)
     const tenantId = `tenant_${crypto.randomUUID().slice(0, 8)}`;
     const existing = await User.findOne({ email: email.toLowerCase().trim() });
     if (existing) {
       return res.status(400).json({ success: false, message: "Email déjà utilisé" });
     }
+
+    // Normaliser le téléphone si fourni
+    let telephoneNormalise = '';
+    if (telephone && telephone.trim()) {
+      const { normaliserTelephone } = require('../utils/phone');
+      const norm = normaliserTelephone(telephone);
+      if (!norm) {
+        return res.status(400).json({ success: false, message: "Numéro de téléphone invalide" });
+      }
+      const telExist = await User.findOne({ telephone: norm });
+      if (telExist) {
+        return res.status(400).json({ success: false, message: "Ce numéro est déjà associé à un compte" });
+      }
+      telephoneNormalise = norm;
+    }
+
     const user = new User({
       email: email.toLowerCase().trim(),
       password,
       nom,
-      boutique: boutique || nom,  // nom boutique = nom du patron par défaut
+      boutique: boutique || nom,
+      telephone: telephoneNormalise,
       role,
       tenantId,
     });
@@ -40,6 +56,7 @@ const register = async (req, res) => {
         email: user.email,
         nom: user.nom,
         boutique: user.boutique,
+        telephone: telephoneNormalise,
         role: user.role,
         tenantId: user.tenantId,
       },
