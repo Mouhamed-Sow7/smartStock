@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const User = require("../models/user.model");
+const Boutique = require("../models/boutique.model");
 const { normaliserTelephone } = require("../utils/phone");
 const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
 const register = async (req, res) => {
@@ -43,6 +44,29 @@ const register = async (req, res) => {
       tenantId,
     });
     await user.save();
+
+    // Créer automatiquement la boutique dans la collection Boutique
+    // pour qu'elle soit visible immédiatement dans l'onglet Agents
+    const nomBoutique = boutique || nom;
+    const slug = nomBoutique
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .slice(0, 20);
+    // Dédoublonner le slug si déjà pris
+    let slugFinal = slug;
+    const slugExist = await Boutique.findOne({ slug });
+    if (slugExist) {
+      slugFinal = `${slug}-${crypto.randomBytes(2).toString('hex')}`;
+    }
+    const boutiqueDoc = new Boutique({
+      tenantId,
+      nom: nomBoutique,
+      slug: slugFinal,
+      telephone: telephoneNormalise || '',
+    });
+    await boutiqueDoc.save();
+
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role, tenantId: user.tenantId },
       JWT_SECRET,
