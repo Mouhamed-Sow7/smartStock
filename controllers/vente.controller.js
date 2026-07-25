@@ -1,6 +1,8 @@
 const Vente = require("../models/vente.model");
 const Produit = require("../models/produit.model");
 const User = require("../models/user.model");
+const Client = require("../models/client.model");
+const { createOuRecupererClient } = require("./client.controller");
 const genererNumeroTicket = async () => {
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
@@ -18,7 +20,7 @@ const createVente = async (req, res) => {
   // "lignes", jamais "produits" — on accepte les deux pour ne plus jamais
   // depanner ce mismatch silencieusement (ex: "panier vide" alors qu'il est plein).
   const itemsPanier = req.body.produits || req.body.lignes;
-  const { modePaiement, note } = req.body;
+  const { modePaiement, note, clientNom } = req.body;
   const tenantId = req.tenantId || "default";
   if (!itemsPanier || itemsPanier.length === 0) {
     return res
@@ -79,6 +81,17 @@ const createVente = async (req, res) => {
         margeLigne,
       });
     }
+    // Vente à crédit : un nom de client est obligatoire, on retrouve/crée sa fiche
+    let client = null;
+    if (modePaiement === "credit") {
+      if (!clientNom || !clientNom.trim()) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Nom du client requis pour une vente à crédit" });
+      }
+      client = await createOuRecupererClient(tenantId, clientNom);
+    }
+
     for (const item of itemsPanier) {
       await Produit.findByIdAndUpdate(item.produitId, {
         $inc: { stock: -item.quantite },
@@ -93,10 +106,21 @@ const createVente = async (req, res) => {
       montantTotal,
       margeTotale,
       modePaiement: modePaiement || "especes",
+      clientId: client ? client._id : null,
+      clientNom: client ? client.nom : "",
       statut: "paye",
       numeroTicket,
       note: note || "",
     });
+
+    // La marchandise part quand même (statut "paye" = vente conclue), seule la
+    // créance client augmente. Le solde est mis à jour APRÈS la création de la
+    // vente pour ne jamais créer une dette si la vente elle-même échoue.
+    if (client) {
+      client.soldeDu += montantTotal;
+      await client.save();
+    }
+
     res.status(201).json({ success: true, data: vente });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

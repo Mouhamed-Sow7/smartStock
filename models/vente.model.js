@@ -17,7 +17,9 @@ const venteSchema = new mongoose.Schema({
   produits:       { type: [ligneVenteSchema], required: true },
   montantTotal:   { type: Number, required: true },
   margeTotale:    { type: Number, default: 0 },       // somme des margeLigne — marge brute de la vente
-  modePaiement:   { type: String, enum: ['especes', 'wave', 'orange_money', 'mtn', 'autre'], default: 'especes' },
+  modePaiement:   { type: String, enum: ['especes', 'wave', 'orange_money', 'mtn', 'autre', 'credit'], default: 'especes' },
+  clientId:       { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null }, // uniquement si modePaiement === 'credit'
+  clientNom:      { type: String, default: '' }, // snapshot, pratique pour l'affichage sans populate
   statut:         { type: String, enum: ['paye', 'en_attente', 'annule'], default: 'paye' },
   numeroTicket:   { type: String, unique: true },
   note:           { type: String, default: '' }
