@@ -12,6 +12,17 @@ const userSchema = new mongoose.Schema({
   role:       { type: String, enum: ['patron', 'agent'], required: true },
   tenantId:   { type: String, required: true },
   actif:      { type: Boolean, default: true },
+  // Abonnement SaaS (uniquement pertinent pour role='patron' — un agent ne
+  // paie rien directement, c'est son patron qui règle pour toute la boutique).
+  // Posé à +30j dès la création du compte, puis avancé de +30j à chaque fois
+  // que l'admin confirme un paiement reçu. Même logique stateless que les
+  // échéances clients (models/client.model.js) : rien de précalculé/stocké
+  // à part la date elle-même, le statut (à venir/en retard) est toujours
+  // recalculé à la lecture.
+  prochainPaiementAbonnement: {
+    type: Date,
+    default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  },
 }, { timestamps: true });
 
 userSchema.pre('save', async function () {

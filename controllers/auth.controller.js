@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const User = require("../models/user.model");
 const Boutique = require("../models/boutique.model");
 const { normaliserTelephone } = require("../utils/phone");
+const { SEUIL_ALERTE_JOURS, calculerJoursRestants, statutEcheance } = require("../utils/echeance");
 const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
 const register = async (req, res) => {
   try {
@@ -211,4 +212,36 @@ const changerMonMotDePasse = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getProfile, createDemoUser, changerMonMotDePasse };
+// Statut d'abonnement du patron connecté, pour afficher un bandeau discret
+// dans son propre PWA quelques jours avant l'échéance — pas de paiement
+// automatisé (ESF encaisse manuellement), juste une visibilité honnête.
+// Un agent n'a pas d'abonnement propre (c'est celui de son patron) : on
+// renvoie alors celui du patron du même tenant.
+const getAbonnement = async (req, res) => {
+  try {
+    let user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
+
+    if (user.role === 'agent') {
+      const patron = await User.findOne({ tenantId: user.tenantId, role: 'patron' });
+      if (patron) user = patron;
+    }
+
+    const joursRestants = calculerJoursRestants(user.prochainPaiementAbonnement);
+    const alerte = joursRestants <= SEUIL_ALERTE_JOURS;
+
+    res.json({
+      success: true,
+      data: {
+        prochainPaiement: user.prochainPaiementAbonnement,
+        joursRestants,
+        statut: alerte ? statutEcheance(joursRestants) : 'ok',
+        alerte,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+module.exports = { register, login, getProfile, createDemoUser, changerMonMotDePasse, getAbonnement };

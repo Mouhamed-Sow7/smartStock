@@ -4,7 +4,7 @@ const Client = require('../models/client.model');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { genererMotDePasse } = require('../utils/password');
-const { calculerJoursRestants, SEUIL_ALERTE_JOURS } = require('./client.controller');
+const { SEUIL_ALERTE_JOURS, calculerJoursRestants, statutEcheance } = require('../utils/echeance');
 
 const ADMIN_KEY = process.env.ADMIN_SECRET_KEY || 'smartstock-admin-2024';
 
@@ -174,9 +174,53 @@ exports.relancesGlobales = async (req, res) => {
         joursRestants: calculerJoursRestants(c.prochaineEcheance),
       }))
       .filter((c) => c.joursRestants <= SEUIL_ALERTE_JOURS)
-      .map((c) => ({ ...c, statut: c.joursRestants < 0 ? 'en_retard' : 'a_venir' }));
+      .map((c) => ({ ...c, statut: statutEcheance(c.joursRestants) }));
 
     res.json({ success: true, data: relances, count: relances.length });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// Patrons dont l'abonnement SaaS arrive à échéance (<=3j) ou est déjà en
+// retard. C'est ESF (toi) qui encaisse manuellement (Wave/OM/virement), donc
+// pas de renouvellement auto : juste une liste triée par urgence pour savoir
+// qui relancer, avec le contact direct pour appeler/écrire.
+exports.abonnementsARelancer = async (req, res) => {
+  try {
+    const patrons = await User.find({ role: 'patron' })
+      .select('nom email telephone boutique tenantId actif prochainPaiementAbonnement');
+
+    const relances = patrons
+      .map((p) => ({
+        _id: p._id,
+        nom: p.nom,
+        email: p.email,
+        telephone: p.telephone,
+        boutique: p.boutique,
+        actif: p.actif,
+        prochainPaiement: p.prochainPaiementAbonnement,
+        joursRestants: calculerJoursRestants(p.prochainPaiementAbonnement),
+      }))
+      .filter((p) => p.joursRestants <= SEUIL_ALERTE_JOURS)
+      .map((p) => ({ ...p, statut: statutEcheance(p.joursRestants) }))
+      .sort((a, b) => a.joursRestants - b.joursRestants);
+
+    res.json({ success: true, data: relances, count: relances.length });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// Confirme un paiement d'abonnement reçu : repousse la prochaine échéance à
+// +30j à partir d'aujourd'hui (date réelle du paiement, pas de l'ancienne
+// échéance — évite l'accumulation de retard si le patron paie en retard).
+exports.renouvelerAbonnement = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ success: false, message: 'Introuvable' });
+    if (user.role !== 'patron') {
+      return res.status(400).json({ success: false, message: "Seul un compte patron a un abonnement" });
+    }
+    user.prochainPaiementAbonnement = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await user.save();
+    res.json({ success: true, data: { id: user._id, prochainPaiement: user.prochainPaiementAbonnement } });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 

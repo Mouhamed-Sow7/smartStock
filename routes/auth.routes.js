@@ -6,6 +6,7 @@ const {
   getProfile,
   createDemoUser,
   changerMonMotDePasse,
+  getAbonnement,
 } = require("../controllers/auth.controller");
 const authMiddleware = require("../middleware/auth.middleware");
 
@@ -14,6 +15,7 @@ router.post("/login", login);
 router.post("/demo", createDemoUser);
 router.post("/create-demo-user", createDemoUser);
 router.get("/me", authMiddleware, getProfile);
+router.get("/abonnement", authMiddleware, getAbonnement);
 router.patch("/change-password", authMiddleware, changerMonMotDePasse);
 
 module.exports = router;

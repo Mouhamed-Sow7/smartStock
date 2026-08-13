@@ -1,6 +1,7 @@
 const Client = require('../models/client.model');
 const Paiement = require('../models/paiement.model');
 const Vente = require('../models/vente.model');
+const { SEUIL_ALERTE_JOURS, calculerJoursRestants, statutEcheance } = require('../utils/echeance');
 
 const getClients = async (req, res) => {
   try {
@@ -112,13 +113,8 @@ const definirEcheance = async (req, res) => {
 };
 
 // Joursrestants < 0 = en retard. Seuil d'alerte : 3 jours ou moins.
-// Calcul toujours à la volée (rien stocké) : pas de cron nécessaire, fiable
-// même si le serveur Render s'est mis en veille entre deux requêtes.
-const SEUIL_ALERTE_JOURS = 3;
-function calculerJoursRestants(prochaineEcheance) {
-  const msParJour = 24 * 60 * 60 * 1000;
-  return Math.ceil((new Date(prochaineEcheance).getTime() - Date.now()) / msParJour);
-}
+// (SEUIL_ALERTE_JOURS et calculerJoursRestants viennent de utils/echeance.js,
+// partagés avec l'abonnement SaaS des patrons — voir admin.controller.js)
 
 // Liste des clients à relancer bientôt ou déjà en retard, triée par urgence
 // (en retard d'abord, puis les plus proches de l'échéance).
@@ -141,7 +137,7 @@ const getRelances = async (req, res) => {
         joursRestants: calculerJoursRestants(c.prochaineEcheance),
       }))
       .filter((c) => c.joursRestants <= SEUIL_ALERTE_JOURS)
-      .map((c) => ({ ...c, statut: c.joursRestants < 0 ? 'en_retard' : 'a_venir' }));
+      .map((c) => ({ ...c, statut: statutEcheance(c.joursRestants) }));
 
     res.json({ success: true, data: relances, count: relances.length });
   } catch (err) {
@@ -157,6 +153,4 @@ module.exports = {
   enregistrerPaiement,
   definirEcheance,
   getRelances,
-  calculerJoursRestants,
-  SEUIL_ALERTE_JOURS,
 };
