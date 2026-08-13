@@ -79,9 +79,71 @@ const enregistrerPaiement = async (req, res) => {
     });
 
     client.soldeDu = Math.max(0, client.soldeDu - montantNum);
+    // Dette soldée = plus rien à relancer. S'il reste un solde, on garde
+    // l'échéance en cours telle quelle (un paiement partiel ne repousse pas
+    // la date, ça reste dû "pour" cette date-là).
+    if (client.soldeDu === 0) {
+      client.prochaineEcheance = null;
+    }
     await client.save();
 
     res.status(201).json({ success: true, data: { paiement, soldeDu: client.soldeDu } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Permet au patron de fixer/ajuster manuellement la date de relance d'un client
+// (ex: accord verbal "je paie dans 2 semaines" plutôt que les 30j par défaut).
+const definirEcheance = async (req, res) => {
+  try {
+    const tenantId = req.tenantId || 'default';
+    const { date } = req.body;
+    const client = await Client.findOne({ _id: req.params.id, tenantId });
+    if (!client) return res.status(404).json({ success: false, message: 'Client non trouvé' });
+
+    client.prochaineEcheance = date ? new Date(date) : null;
+    await client.save();
+
+    res.json({ success: true, data: client });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+// Joursrestants < 0 = en retard. Seuil d'alerte : 3 jours ou moins.
+// Calcul toujours à la volée (rien stocké) : pas de cron nécessaire, fiable
+// même si le serveur Render s'est mis en veille entre deux requêtes.
+const SEUIL_ALERTE_JOURS = 3;
+function calculerJoursRestants(prochaineEcheance) {
+  const msParJour = 24 * 60 * 60 * 1000;
+  return Math.ceil((new Date(prochaineEcheance).getTime() - Date.now()) / msParJour);
+}
+
+// Liste des clients à relancer bientôt ou déjà en retard, triée par urgence
+// (en retard d'abord, puis les plus proches de l'échéance).
+const getRelances = async (req, res) => {
+  try {
+    const tenantId = req.tenantId || 'default';
+    const clients = await Client.find({
+      tenantId,
+      soldeDu: { $gt: 0 },
+      prochaineEcheance: { $ne: null },
+    }).sort({ prochaineEcheance: 1 });
+
+    const relances = clients
+      .map((c) => ({
+        _id: c._id,
+        nom: c.nom,
+        telephone: c.telephone,
+        soldeDu: c.soldeDu,
+        prochaineEcheance: c.prochaineEcheance,
+        joursRestants: calculerJoursRestants(c.prochaineEcheance),
+      }))
+      .filter((c) => c.joursRestants <= SEUIL_ALERTE_JOURS)
+      .map((c) => ({ ...c, statut: c.joursRestants < 0 ? 'en_retard' : 'a_venir' }));
+
+    res.json({ success: true, data: relances, count: relances.length });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -93,4 +155,8 @@ module.exports = {
   createClient,
   createOuRecupererClient,
   enregistrerPaiement,
+  definirEcheance,
+  getRelances,
+  calculerJoursRestants,
+  SEUIL_ALERTE_JOURS,
 };

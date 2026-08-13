@@ -1,8 +1,10 @@
 const User = require('../models/user.model');
 const Vente = require('../models/vente.model');
+const Client = require('../models/client.model');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { genererMotDePasse } = require('../utils/password');
+const { calculerJoursRestants, SEUIL_ALERTE_JOURS } = require('./client.controller');
 
 const ADMIN_KEY = process.env.ADMIN_SECRET_KEY || 'smartstock-admin-2024';
 
@@ -145,6 +147,36 @@ exports.purgeVentes = async (req, res) => {
     const filtre = tenantId ? { tenantId } : {};
     const result = await Vente.deleteMany(filtre);
     res.json({ success: true, message: `${result.deletedCount} vente(s) supprimee(s)`, deletedCount: result.deletedCount });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// Clients à relancer (bientôt dus ou en retard) toutes boutiques confondues,
+// avec le nom de la boutique jointe depuis les comptes patron (tenantId ->
+// boutique). Même seuil/logique que le patron individuel, vue agrégée en plus.
+exports.relancesGlobales = async (req, res) => {
+  try {
+    const [clients, patrons] = await Promise.all([
+      Client.find({ soldeDu: { $gt: 0 }, prochaineEcheance: { $ne: null } }).sort({ prochaineEcheance: 1 }),
+      User.find({ role: 'patron' }).select('tenantId boutique'),
+    ]);
+
+    const boutiqueParTenant = new Map(patrons.map((p) => [p.tenantId, p.boutique]));
+
+    const relances = clients
+      .map((c) => ({
+        _id: c._id,
+        nom: c.nom,
+        telephone: c.telephone,
+        soldeDu: c.soldeDu,
+        prochaineEcheance: c.prochaineEcheance,
+        tenantId: c.tenantId,
+        boutique: boutiqueParTenant.get(c.tenantId) || c.tenantId,
+        joursRestants: calculerJoursRestants(c.prochaineEcheance),
+      }))
+      .filter((c) => c.joursRestants <= SEUIL_ALERTE_JOURS)
+      .map((c) => ({ ...c, statut: c.joursRestants < 0 ? 'en_retard' : 'a_venir' }));
+
+    res.json({ success: true, data: relances, count: relances.length });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 

@@ -118,6 +118,17 @@ const createVente = async (req, res) => {
     // vente pour ne jamais créer une dette si la vente elle-même échoue.
     if (client) {
       client.soldeDu += montantTotal;
+      // Pose une échéance de relance seulement si aucune n'est déjà programmée
+      // dans le futur : une nouvelle vente à crédit d'un client déjà suivi ne
+      // doit pas repousser sa date de relance en cours (sinon un client qui
+      // achète souvent à crédit ne serait jamais relancé).
+      const echeanceExistanteFuture =
+        client.prochaineEcheance && client.prochaineEcheance.getTime() > Date.now();
+      if (!echeanceExistanteFuture) {
+        const dans30Jours = new Date();
+        dans30Jours.setDate(dans30Jours.getDate() + 30);
+        client.prochaineEcheance = dans30Jours;
+      }
       await client.save();
     }
 
