@@ -49,6 +49,18 @@ const createVente = async (req, res) => {
     let margeTotale = 0;
     const lignes = [];
     for (const item of itemsPanier) {
+      // Un produitId non-ObjectId valide (ex: "temp_xxx", resté non résolu côté
+      // client après une création offline jamais remappée) plantait Mongoose
+      // avec une CastError, remontée en 500 générique par le catch plus bas.
+      // Le frontend traite les 500 comme des erreurs réseau temporaires et
+      // retentait cette vente indéfiniment, sans jamais pouvoir aboutir.
+      // On la détecte tôt et on répond 400 (erreur définitive, non-retryable).
+      if (!/^[0-9a-fA-F]{24}$/.test(String(item.produitId))) {
+        return res.status(400).json({
+          success: false,
+          message: `Identifiant produit invalide (${item.produitId}) — produit non synchronisé`,
+        });
+      }
       const produit = await Produit.findOne({ _id: item.produitId, tenantId });
       if (!produit) {
         return res
