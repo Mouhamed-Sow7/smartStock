@@ -22,6 +22,7 @@ console.log("Configuration CORS...");
 const originesAutorisees = [
   "http://localhost:4200",
   "https://smartstock-pwa-cyan.vercel.app",
+  "https://smartstock.digitalesf.com",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 app.use(
