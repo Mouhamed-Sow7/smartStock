@@ -91,45 +91,40 @@ exports.creerAgent = async (req, res) => {
     const { nom, prenom, telephone } = req.body;
     if (!nom) return res.status(400).json({ success: false, message: 'Nom requis' });
 
+    // Téléphone désormais obligatoire : c'est le SEUL identifiant de
+    // connexion d'un agent (plus d'email auto-généré du tout — l'ancien
+    // format prenom.nom@slug.sm posait un vrai problème pratique : illisible,
+    // change si la boutique est renommée, aucune valeur ajoutée pour un
+    // agent qui n'a pas de boîte mail à consulter). Les agents créés avant
+    // ce changement gardent leur email existant et continuent de fonctionner
+    // (login() accepte encore email OU téléphone) — rien de cassé pour eux,
+    // juste plus disponible pour les nouveaux agents.
+    if (!telephone || !telephone.trim()) {
+      return res.status(400).json({ success: false, message: 'Numéro de téléphone requis pour créer un agent' });
+    }
+    const telephoneNormalise = normaliserTelephone(telephone);
+    if (!telephoneNormalise) {
+      return res.status(400).json({
+        success: false,
+        message: "Numéro de téléphone invalide. Format attendu : préfixe 70/75/76/77/78, avec ou sans indicatif 221.",
+      });
+    }
+    // Un téléphone ne peut servir d'identifiant qu'à un seul compte (patron
+    // OU agent — pas de filtre de rôle, comme pour login() désormais).
+    const telExists = await User.findOne({ telephone: telephoneNormalise });
+    if (telExists) {
+      return res.status(400).json({ success: false, message: 'Ce numéro de téléphone est déjà utilisé par un autre compte' });
+    }
+
     const boutique = await Boutique.findOne({ _id: req.params.id, tenantId: req.tenantId });
     if (!boutique) return res.status(404).json({ success: false, message: 'Boutique introuvable' });
-
-    // Normaliser le téléphone si fourni — rejette silencieusement les formats invalides
-    // (l'agent pourra toujours se connecter par email, le téléphone reste optionnel)
-    let telephoneNormalise = '';
-    if (telephone && telephone.trim()) {
-      const normalise = normaliserTelephone(telephone);
-      if (!normalise) {
-        return res.status(400).json({
-          success: false,
-          message: "Numéro de téléphone invalide. Format attendu : préfixe 70/75/76/77/78, avec ou sans indicatif 221.",
-        });
-      }
-      // Un téléphone ne peut servir d'identifiant qu'à un seul agent
-      const telExists = await User.findOne({ telephone: normalise, role: 'agent' });
-      if (telExists) {
-        return res.status(400).json({ success: false, message: 'Ce numéro de téléphone est déjà utilisé par un autre agent' });
-      }
-      telephoneNormalise = normalise;
-    }
-
-    // Email format : prenom.nom@slug.sm
-    const prenomSlug = (prenom || 'agent').toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
-    const nomSlug    = nom.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
-    let email = `${prenomSlug}.${nomSlug}@${boutique.slug}.sm`;
-
-    // Dédoublonner si email déjà pris
-    const exists = await User.findOne({ email });
-    if (exists) {
-      const rand = crypto.randomBytes(2).toString('hex');
-      email = `${prenomSlug}.${nomSlug}.${rand}@${boutique.slug}.sm`;
-    }
 
     // Mot de passe aléatoire fort (jamais le numéro de téléphone — sécurité)
     const motDePasseGenere = genererMotDePasse(9);
 
     const agent = new User({
-      email,
+      // Pas de champ email : optionnel pour un agent (voir models/user.model.js,
+      // required uniquement pour role==='patron', index sparse).
       telephone: telephoneNormalise,
       password: motDePasseGenere,
       nom, prenom: prenom || '',
@@ -140,14 +135,13 @@ exports.creerAgent = async (req, res) => {
     });
     await agent.save();
 
-    const telephoneAffiche = telephoneNormalise ? formaterTelephoneAffichage(telephoneNormalise) : '';
+    const telephoneAffiche = formaterTelephoneAffichage(telephoneNormalise);
 
     res.status(201).json({
       success: true,
       data: {
         _id: agent._id,
         id: agent._id, // conservé pour compat avec un éventuel appelant existant
-        email: agent.email,
         nom: agent.nom,
         prenom: agent.prenom,
         boutique: boutique.nom,
@@ -160,9 +154,7 @@ exports.creerAgent = async (req, res) => {
         // (valeur par défaut du schéma, jamais renvoyée ici auparavant).
         actif: agent.actif,
         motDePasseGenere,
-        loginInfo: telephoneAffiche
-          ? `Connexion par email: ${email}  OU  téléphone: ${telephoneAffiche}\nMot de passe: ${motDePasseGenere}`
-          : `Connexion par email: ${email}\nMot de passe: ${motDePasseGenere}`,
+        loginInfo: `Connexion par téléphone: ${telephoneAffiche}\nMot de passe: ${motDePasseGenere}`,
       }
     });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

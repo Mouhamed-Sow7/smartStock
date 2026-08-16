@@ -78,6 +78,24 @@ async function startServer() {
     console.log("Tentative de connexion à MongoDB...");
     await connectDB();
     console.log("MongoDB connecté avec succès!");
+
+    // L'index unique existant sur User.email (créé avant l'introduction des
+    // agents sans email) n'a pas l'option "sparse" -- incompatible avec
+    // plusieurs agents ayant email absent (le login par téléphone seul ne
+    // pose plus d'email du tout, voir boutique.controller.js creerAgent).
+    // syncIndexes() compare le schéma actuel à l'index réel en base et le
+    // recrée automatiquement s'il ne correspond plus (ici : ajout de
+    // sparse:true) -- pas de script de migration manuel à faire tourner.
+    // Non bloquant : si ça échoue (ex: permissions Atlas), on log et on
+    // continue plutôt que de crasher tout le serveur pour un souci d'index.
+    try {
+      const User = require("./models/user.model");
+      await User.syncIndexes();
+      console.log("Index User synchronisés.");
+    } catch (syncErr) {
+      console.error("Avertissement : échec syncIndexes User (non bloquant):", syncErr.message);
+    }
+
     app.listen(PORT, () => {
       console.log("========================================");
       console.log("Serveur démarré sur le port " + PORT);

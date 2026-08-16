@@ -2,7 +2,12 @@ const mongoose = require('mongoose');
 const bcrypt   = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-  email:      { type: String, required: true, unique: true, lowercase: true, trim: true },
+  // Obligatoire pour un patron, optionnel pour un agent (identifiant de
+  // connexion desormais le telephone -- voir boutique.controller.js
+  // creerAgent). sparse:true indispensable : sans ca, plusieurs agents sans
+  // email violeraient la contrainte unique (plusieurs valeurs "undefined"
+  // seraient traitees comme des doublons par l'index Mongo).
+  email:      { type: String, required: function () { return this.role === 'patron'; }, unique: true, sparse: true, lowercase: true, trim: true },
   telephone:  { type: String, default: '', index: true },  // toujours stocké normalisé via utils/phone.js (ex: "221781440232")
   password:   { type: String, required: true },
   nom:        { type: String, required: true },
