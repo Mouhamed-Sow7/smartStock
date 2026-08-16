@@ -145,13 +145,20 @@ exports.creerAgent = async (req, res) => {
     res.status(201).json({
       success: true,
       data: {
-        id: agent._id,
+        _id: agent._id,
+        id: agent._id, // conservé pour compat avec un éventuel appelant existant
         email: agent.email,
         nom: agent.nom,
         prenom: agent.prenom,
         boutique: boutique.nom,
         boutiqueId: boutique._id,
         telephone: telephoneAffiche,
+        // Sans ce champ, l'agent flambant neuf inséré directement dans la
+        // liste côté frontend (sans re-fetch) apparaissait "inactif" (rond
+        // rouge) jusqu'à un rechargement de page -- agent.actif valait
+        // undefined au lieu de true, le vrai booléen n'existant qu'en base
+        // (valeur par défaut du schéma, jamais renvoyée ici auparavant).
+        actif: agent.actif,
         motDePasseGenere,
         loginInfo: telephoneAffiche
           ? `Connexion par email: ${email}  OU  téléphone: ${telephoneAffiche}\nMot de passe: ${motDePasseGenere}`
