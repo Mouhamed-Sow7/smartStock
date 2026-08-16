@@ -104,7 +104,12 @@ const login = async (req, res) => {
       if (!telNormalise) {
         return res.status(401).json({ success: false, message: 'Numéro de téléphone invalide' });
       }
-      user = await User.findOne({ telephone: telNormalise, role: 'agent' });
+      // Pas de filtre par rôle : un patron peut aussi se connecter par
+      // téléphone (bug corrigé — c'était restreint aux agents uniquement,
+      // alors que register() enregistre déjà le téléphone pour les patrons
+      // aussi). Le champ telephone est unique en base (voir register()),
+      // donc pas de risque de collision agent/patron.
+      user = await User.findOne({ telephone: telNormalise });
     }
     if (!user) {
       return res.status(401).json({ success: false, message: 'Identifiant ou mot de passe incorrect' });

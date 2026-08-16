@@ -89,9 +89,26 @@ exports.editUser = async (req, res) => {
       user.email = email;
     }
     if (nom) user.nom = nom;
+
+    // Le nom de boutique est dupliqué (dénormalisé) sur CHAQUE compte agent
+    // au moment de leur création (voir boutique.controller.js creerAgent :
+    // `boutique: boutique.nom`), en plus du champ du patron lui-même. Sans
+    // cascade, un renommage ici ne mettait à jour que le compte du patron
+    // édité -> invisible côté agents ET côté client (le ticket de caisse
+    // lit user.boutique de l'agent connecté, pas celui du patron). On
+    // propage donc à tous les comptes du même tenantId.
+    const boutiqueChangee = boutique !== undefined && boutique !== user.boutique;
     if (boutique !== undefined) user.boutique = boutique;
 
     await user.save();
+
+    if (boutiqueChangee) {
+      await User.updateMany(
+        { tenantId: user.tenantId, _id: { $ne: user._id } },
+        { $set: { boutique } },
+      );
+    }
+
     res.json({ success: true, data: { id: user._id, nom: user.nom, email: user.email, boutique: user.boutique } });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
