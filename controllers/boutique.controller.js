@@ -172,6 +172,59 @@ exports.toggleAgent = async (req, res) => {
 };
 
 // PATCH /api/boutiques/agents/:agentId/reset-password
+// PATCH /api/boutiques/agents/:agentId — modifier nom/prenom/telephone,
+// avec reset optionnel du mot de passe dans le même appel. Le frontend
+// (agents.component.ts sauvegarderAgent) appelait auparavant PATCH
+// /api/agents/:id -- un routeur totalement différent et legacy (ancien
+// système d'agents à QR code, modèle Agent séparé, collection vide en
+// prod), qui ne trouvait jamais l'agent (il vit dans User, pas Agent) et
+// renvoyait 404 -> "Erreur lors de la modification" côté patron. Voir
+// agents.component.ts pour la correction de l'URL appelée.
+exports.modifierAgentInfos = async (req, res) => {
+  try {
+    const agent = await User.findOne({ _id: req.params.agentId, tenantId: req.tenantId, role: 'agent' });
+    if (!agent) return res.status(404).json({ success: false, message: 'Agent introuvable' });
+
+    const { nom, prenom, telephone, resetPassword } = req.body;
+    if (nom && nom.trim()) agent.nom = nom.trim();
+    if (prenom !== undefined) agent.prenom = prenom.trim();
+
+    if (telephone && telephone.trim()) {
+      const telNorm = normaliserTelephone(telephone);
+      if (!telNorm) {
+        return res.status(400).json({ success: false, message: 'Numéro de téléphone invalide' });
+      }
+      const collision = await User.findOne({ telephone: telNorm, _id: { $ne: agent._id } });
+      if (collision) {
+        return res.status(400).json({ success: false, message: 'Ce numéro est déjà utilisé par un autre compte' });
+      }
+      agent.telephone = telNorm;
+    }
+
+    let motDePasseGenere = null;
+    if (resetPassword) {
+      motDePasseGenere = genererMotDePasse(9);
+      agent.password = motDePasseGenere; // pre-save hook hash automatiquement
+    }
+
+    await agent.save();
+
+    res.json({
+      success: true,
+      data: {
+        _id: agent._id,
+        nom: agent.nom,
+        prenom: agent.prenom,
+        telephone: formaterTelephoneAffichage(agent.telephone),
+        actif: agent.actif,
+      },
+      // Nom conservé identique à ce qu'attend déjà le frontend (voir
+      // sauvegarderAgent) -- ne pas renommer sans adapter les deux côtés.
+      ...(motDePasseGenere ? { nouveauMotDePasse: motDePasseGenere } : {}),
+    });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
 exports.resetPasswordAgent = async (req, res) => {
   try {
     const agent = await User.findOne({ _id: req.params.agentId, tenantId: req.tenantId, role: 'agent' });
@@ -184,7 +237,9 @@ exports.resetPasswordAgent = async (req, res) => {
       message: 'Mot de passe réinitialisé',
       data: {
         motDePasseGenere,
-        loginInfo: `Connexion par email: ${agent.email}\nMot de passe: ${motDePasseGenere}`,
+        loginInfo: agent.email
+          ? `Connexion par email: ${agent.email}\nMot de passe: ${motDePasseGenere}`
+          : `Connexion par téléphone: ${formaterTelephoneAffichage(agent.telephone)}\nMot de passe: ${motDePasseGenere}`,
       },
     });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

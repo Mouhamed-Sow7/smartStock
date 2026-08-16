@@ -199,26 +199,35 @@ exports.relancesGlobales = async (req, res) => {
 };
 
 // Patrons dont l'abonnement SaaS arrive à échéance (<=3j) ou est déjà en
-// retard. C'est ESF (toi) qui encaisse manuellement (Wave/OM/virement), donc
-// pas de renouvellement auto : juste une liste triée par urgence pour savoir
-// qui relancer, avec le contact direct pour appeler/écrire.
+// retard, PAR DÉFAUT. Avec ?tous=1, renvoie TOUS les patrons (vue
+// d'ensemble complète du portefeuille d'abonnés, triée par urgence quand
+// même — un patron inscrit hier apparaît en bas, un abonnement en retard
+// en haut). C'est ESF (toi) qui encaisse manuellement (Wave/OM/virement),
+// donc pas de renouvellement auto : juste une liste triée pour savoir qui
+// relancer, avec le contact direct pour appeler/écrire.
 exports.abonnementsARelancer = async (req, res) => {
   try {
+    const tous = req.query.tous === '1' || req.query.tous === 'true';
     const patrons = await User.find({ role: 'patron' })
-      .select('nom email telephone boutique tenantId actif prochainPaiementAbonnement');
+      .select('nom email telephone boutique tenantId actif prochainPaiementAbonnement createdAt');
 
-    const relances = patrons
-      .map((p) => ({
-        _id: p._id,
-        nom: p.nom,
-        email: p.email,
-        telephone: p.telephone,
-        boutique: p.boutique,
-        actif: p.actif,
-        prochainPaiement: p.prochainPaiementAbonnement,
-        joursRestants: calculerJoursRestants(p.prochainPaiementAbonnement),
-      }))
-      .filter((p) => p.joursRestants <= SEUIL_ALERTE_JOURS)
+    let relances = patrons.map((p) => ({
+      _id: p._id,
+      nom: p.nom,
+      email: p.email,
+      telephone: p.telephone,
+      boutique: p.boutique,
+      actif: p.actif,
+      inscritLe: p.createdAt,
+      prochainPaiement: p.prochainPaiementAbonnement,
+      joursRestants: calculerJoursRestants(p.prochainPaiementAbonnement),
+    }));
+
+    if (!tous) {
+      relances = relances.filter((p) => p.joursRestants <= SEUIL_ALERTE_JOURS);
+    }
+
+    relances = relances
       .map((p) => ({ ...p, statut: statutEcheance(p.joursRestants) }))
       .sort((a, b) => a.joursRestants - b.joursRestants);
 
