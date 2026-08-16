@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const User = require("../models/user.model");
 const Boutique = require("../models/boutique.model");
 const { normaliserTelephone } = require("../utils/phone");
+const { cascaderRenommageBoutique } = require("../utils/boutiqueRename");
 const { SEUIL_ALERTE_JOURS, calculerJoursRestants, statutEcheance } = require("../utils/echeance");
 const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
 const register = async (req, res) => {
@@ -222,6 +223,71 @@ const changerMonMotDePasse = async (req, res) => {
 // automatisé (ESF encaisse manuellement), juste une visibilité honnête.
 // Un agent n'a pas d'abonnement propre (c'est celui de son patron) : on
 // renvoie alors celui du patron du même tenant.
+// Modifier son propre profil (patron uniquement pour le champ boutique —
+// un agent ne doit pas pouvoir renommer la boutique de son patron). Pensé
+// pour la page "Mon compte" patron : permet de corriger un email/téléphone
+// bloqué ou erroné sans dépendre de l'admin, et de renommer sa boutique
+// avec la même cascade complète que côté admin (voir utils/boutiqueRename.js).
+const modifierMonProfil = async (req, res) => {
+  try {
+    const { nom, email, telephone, boutique } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
+
+    if (boutique !== undefined && user.role !== 'patron') {
+      return res.status(403).json({ success: false, message: "Seul le patron peut renommer la boutique" });
+    }
+
+    if (email && email.toLowerCase().trim() !== user.email) {
+      const emailNorm = email.toLowerCase().trim();
+      const exists = await User.findOne({ email: emailNorm, _id: { $ne: user._id } });
+      if (exists) return res.status(400).json({ success: false, message: 'Cet email est déjà utilisé par un autre compte' });
+      user.email = emailNorm;
+    }
+
+    if (telephone !== undefined) {
+      if (telephone.trim() === '') {
+        user.telephone = '';
+      } else {
+        const telNorm = normaliserTelephone(telephone);
+        if (!telNorm) {
+          return res.status(400).json({ success: false, message: 'Numéro de téléphone invalide' });
+        }
+        const exists = await User.findOne({ telephone: telNorm, _id: { $ne: user._id } });
+        if (exists) return res.status(400).json({ success: false, message: 'Ce numéro est déjà utilisé par un autre compte' });
+        user.telephone = telNorm;
+      }
+    }
+
+    if (nom && nom.trim()) user.nom = nom.trim();
+
+    const boutiqueChangee = boutique !== undefined && boutique.trim() && boutique.trim() !== user.boutique;
+    if (boutiqueChangee) user.boutique = boutique.trim();
+
+    await user.save();
+
+    let emailsChanges = [];
+    if (boutiqueChangee) {
+      const resultat = await cascaderRenommageBoutique(user.tenantId, user.boutique, user._id);
+      emailsChanges = resultat.emailsChanges;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: user._id, nom: user.nom, email: user.email, telephone: user.telephone,
+        boutique: user.boutique, boutiqueId: user.boutiqueId, role: user.role, tenantId: user.tenantId,
+      },
+      // [{agentId, ancienEmail, nouvelEmail}] -- à afficher clairement si non
+      // vide : les agents concernés doivent être prévenus de leur nouvel
+      // identifiant de connexion (pas d'email/SMS automatique pour l'instant).
+      emailsChanges,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 const getAbonnement = async (req, res) => {
   try {
     let user = await User.findById(req.user.id);
@@ -249,4 +315,4 @@ const getAbonnement = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getProfile, createDemoUser, changerMonMotDePasse, getAbonnement };
+module.exports = { register, login, getProfile, createDemoUser, changerMonMotDePasse, modifierMonProfil, getAbonnement };

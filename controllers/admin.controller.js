@@ -1,4 +1,5 @@
 const User = require('../models/user.model');
+const { cascaderRenommageBoutique } = require('../utils/boutiqueRename');
 const Vente = require('../models/vente.model');
 const Client = require('../models/client.model');
 const bcrypt = require('bcryptjs');
@@ -90,26 +91,26 @@ exports.editUser = async (req, res) => {
     }
     if (nom) user.nom = nom;
 
-    // Le nom de boutique est dupliqué (dénormalisé) sur CHAQUE compte agent
-    // au moment de leur création (voir boutique.controller.js creerAgent :
-    // `boutique: boutique.nom`), en plus du champ du patron lui-même. Sans
-    // cascade, un renommage ici ne mettait à jour que le compte du patron
-    // édité -> invisible côté agents ET côté client (le ticket de caisse
-    // lit user.boutique de l'agent connecté, pas celui du patron). On
-    // propage donc à tous les comptes du même tenantId.
     const boutiqueChangee = boutique !== undefined && boutique !== user.boutique;
     if (boutique !== undefined) user.boutique = boutique;
 
     await user.save();
 
+    // Cascade complète (User.boutique sur tout le tenant + Boutique.nom/slug
+    // + relocalisation des emails agents si mono-boutique) — voir
+    // utils/boutiqueRename.js pour le détail de la logique et ses limites
+    // (multi-boutique volontairement non cascadé).
+    let emailsChanges = [];
     if (boutiqueChangee) {
-      await User.updateMany(
-        { tenantId: user.tenantId, _id: { $ne: user._id } },
-        { $set: { boutique } },
-      );
+      const resultat = await cascaderRenommageBoutique(user.tenantId, boutique, user._id);
+      emailsChanges = resultat.emailsChanges;
     }
 
-    res.json({ success: true, data: { id: user._id, nom: user.nom, email: user.email, boutique: user.boutique } });
+    res.json({
+      success: true,
+      data: { id: user._id, nom: user.nom, email: user.email, boutique: user.boutique },
+      emailsChanges, // [{agentId, ancienEmail, nouvelEmail}] — à afficher côté admin si non vide, pour qu'il prévienne les agents concernés
+    });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
