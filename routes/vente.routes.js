@@ -7,7 +7,8 @@ const {
   getVentes,
   getVenteById,
   annulerVente,
-  getStats
+  getStats,
+  getAgentsPourFiltre
 } = require('../controllers/vente.controller');
 
 router.use(authMiddleware);
@@ -15,6 +16,10 @@ router.use(authMiddleware);
 // Stats dashboard (avant /:id pour éviter conflit de route)
 router.route('/stats')
   .get(getStats);
+
+// Liste des agents pour le filtre "par agent" côté patron (avant /:id)
+router.route('/agents')
+  .get(getAgentsPourFiltre);
 
 // Liste et création
 router.route('/')

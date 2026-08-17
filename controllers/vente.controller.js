@@ -158,7 +158,13 @@ const getVentes = async (req, res) => {
       if (debut) filtre.createdAt["$gte"] = new Date(debut);
       if (fin) filtre.createdAt["$lte"] = new Date(fin);
     }
-    if (agentId) {
+    // Cloisonnement agent : un agent ne doit JAMAIS pouvoir lire les ventes
+    // d'un autre agent, même en modifiant le paramètre ?agentId= dans l'URL.
+    // Le rôle vient du JWT (req.user.role), donc infalsifiable côté client.
+    // Seul un patron/admin peut filtrer librement (ou ne pas filtrer = tout voir).
+    if (req.user?.role === "agent") {
+      filtre.agentId = req.user.id;
+    } else if (agentId) {
       filtre.agentId = agentId;
     } else if (boutiqueId) {
       // Filtre par boutique : recuperer les agents de cette boutique et filtrer les ventes
@@ -169,6 +175,21 @@ const getVentes = async (req, res) => {
     if (modePaiement) filtre.modePaiement = modePaiement;
     const ventes = await Vente.find(filtre).sort({ createdAt: -1 });
     res.json({ success: true, data: ventes, count: ventes.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Liste légère des agents du tenant, utilisée pour peupler le filtre "par
+// agent" de la page Ventes côté patron (toutes boutiques confondues).
+const getAgentsPourFiltre = async (req, res) => {
+  try {
+    const User = require('../models/user.model');
+    const tenantId = req.tenantId || "default";
+    const agents = await User.find({ tenantId, role: "agent" })
+      .select("_id nom telephone boutique")
+      .sort({ nom: 1 });
+    res.json({ success: true, data: agents });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -222,6 +243,15 @@ const annulerVente = async (req, res) => {
 const getStats = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
+    // Même règle de cloisonnement que getVentes : un agent ne voit que ses
+    // propres stats (son "Ventes du jour" sur son dashboard), le rôle vient
+    // du JWT donc pas contournable. Un patron peut optionnellement filtrer
+    // sur un agent précis via ?agentId=, sinon il voit tout le tenant.
+    const agentFiltre =
+      req.user?.role === "agent" ? req.user.id : req.query.agentId || null;
+    const matchBase = { tenantId, statut: "paye" };
+    if (agentFiltre) matchBase.agentId = agentFiltre;
+
     const now = new Date();
     const debutJour = new Date(
       now.getFullYear(),
@@ -243,7 +273,7 @@ const getStats = async (req, res) => {
     const [jour, semaine, mois, annee, paiementsMois] = await Promise.all([
       Vente.aggregate([
         {
-          $match: { tenantId, statut: "paye", createdAt: { $gte: debutJour } },
+          $match: { ...matchBase, createdAt: { $gte: debutJour } },
         },
         {
           $group: {
@@ -257,8 +287,7 @@ const getStats = async (req, res) => {
       Vente.aggregate([
         {
           $match: {
-            tenantId,
-            statut: "paye",
+            ...matchBase,
             createdAt: { $gte: debutSemaine },
           },
         },
@@ -273,7 +302,7 @@ const getStats = async (req, res) => {
       ]),
       Vente.aggregate([
         {
-          $match: { tenantId, statut: "paye", createdAt: { $gte: debutMois } },
+          $match: { ...matchBase, createdAt: { $gte: debutMois } },
         },
         {
           $group: {
@@ -286,7 +315,7 @@ const getStats = async (req, res) => {
       ]),
       Vente.aggregate([
         {
-          $match: { tenantId, statut: "paye", createdAt: { $gte: debutAnnee } },
+          $match: { ...matchBase, createdAt: { $gte: debutAnnee } },
         },
         {
           $group: {
@@ -299,7 +328,7 @@ const getStats = async (req, res) => {
       ]),
       Vente.aggregate([
         {
-          $match: { tenantId, statut: "paye", createdAt: { $gte: debutMois } },
+          $match: { ...matchBase, createdAt: { $gte: debutMois } },
         },
         {
           $group: {
@@ -347,4 +376,5 @@ module.exports = {
   getVenteById,
   annulerVente,
   getStats,
+  getAgentsPourFiltre,
 };
