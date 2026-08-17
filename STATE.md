@@ -3,7 +3,7 @@
 > Lire ce fichier + `ARCHITECTURE.md` avant de commencer toute tâche.
 > Historique détaillé → `CHANGELOG.md` (charger seulement pour investiguer une régression).
 
-**Dernière mise à jour** : 2026-08-15 — dernier commit `7999339`
+**Dernière mise à jour** : 2026-08-16 — dernier commit `46129e2`
 
 ---
 
@@ -13,30 +13,38 @@ Client réel en production. Frontend sur `smartstock.digitalesf.com`, backend su
 
 ## ⚠️ Déploiement Render non vérifiable automatiquement
 
-Contrairement à Vercel (qui poste un statut de déploiement sur GitHub, vérifiable via API), **Render ne le fait pas**. Après un push sur ce repo, toujours demander à l'utilisateur de confirmer le déploiement sur son dashboard Render avant de considérer un fix comme "en prod".
+Contrairement à Vercel (poste un statut sur GitHub, vérifiable via API), **Render ne le fait pas**. Toujours demander confirmation à l'utilisateur après un push sur ce repo.
 
 ## Bugs ouverts
 
-_Aucun bug bloquant connu actuellement côté backend._
+_Aucun bug bloquant connu actuellement._
 
-## Backlog priorisé par l'utilisateur (2026-08-15)
+## Backlog — demandes utilisateur en attente (2026-08-16)
 
-1. ✅ **Login par téléphone patron** — corrigé (`7999339`). La recherche par téléphone dans `login()` était codée en dur sur `role:'agent'`, excluant les patrons. Filtre retiré.
-2. ✅ **Cascade renommage boutique** — corrigé (`7999339`). `editUser()` (admin) ne mettait à jour que le patron édité ; le nom est dénormalisé sur chaque compte agent à sa création (`boutique.controller.js creerAgent`). Cascade ajoutée via `User.updateMany({tenantId}, ...)`. Collection `Boutique` (système multi-outlet séparé) volontairement non cascadée.
-3. **⏳ Pas commencé — mot de passe généré par admin pour patron**
-   `PATCH /admin/users/:id/reset-password` existe déjà (`admin.controller.js`, fonctionnel, déjà utilisé pour les agents côté UI admin). Vérifier/exposer côté UI admin pour un **patron** (frontend `smartstock-pwa`, `admin.component.ts` — semble scopé aux agents actuellement, à vérifier côté frontend).
-4. **⏳ Pas commencé — endpoint pour que le patron change son propre email/téléphone**
-   Nécessaire pour (a) les patrons sans téléphone en base (point 1 côté login), (b) le cas "email bloqué" mentionné par l'utilisateur. Pas d'endpoint dédié actuellement (`editUser` est admin-only, protégé par `x-admin-key`).
-5. **⏳ Pas commencé, priorité la plus basse — email de récupération de mot de passe**
-   Adresses dispo côté utilisateur : `contact@digitalesf.com` / `noreply@digitalesf.com`. Nécessite Nodemailer + provider SMTP gratuit (Brevo/SendGrid free tier à évaluer) + variables d'env (`SMTP_HOST`, `SMTP_USER`, etc. sur Render) + un flow token de reset à durée limitée. En attente que 3-4 soient terminés.
+1. **⏳ Rôles admin à clarifier/étendre** — mentionné par l'utilisateur sans détail précis ("pareil pour admin et ses rôles"), probablement lié à la gestion patrons/abonnements. À reclarifier en début de prochaine session.
+2. **⏳ Carte "crédit" à la validation de vente** — le système de crédit client existe déjà (modèles `Client`/`Paiement`, `modePaiement:'credit'` sur `Vente`) mais pas vérifié si le flux de vente POS (agent) propose déjà cette option à la validation. À investiguer avant de coder.
+3. **⏳ Email de récupération de mot de passe** — priorité la plus basse. Nécessite Nodemailer + provider SMTP gratuit (Brevo/SendGrid à évaluer), variables d'env sur Render (`SMTP_HOST`, `SMTP_USER`...), flow de token de reset à durée limitée. Adresses dispo côté utilisateur : `contact@digitalesf.com`/`noreply@digitalesf.com`.
+
+## Résolu cette session (2026-08-15 → 2026-08-16), pour référence rapide
+
+- Login par téléphone patron débloqué (`role:'agent'` retiré du filtre de recherche)
+- Cascade complète de renommage de boutique : `User.boutique` sur tout le tenant + `Boutique.nom`/`slug` (si mono-boutique) + relocalisation des emails agents concernés — nouvel utilitaire partagé `utils/boutiqueRename.js`
+- Nouvel endpoint `PATCH /auth/profil` — patron peut modifier lui-même nom/email/téléphone/boutique
+- Réponse `creerAgent` incomplète (`_id`/`actif` manquants) → badge "inactif" jusqu'à reload côté frontend, corrigé
+- **Agents : téléphone devient le SEUL identifiant** (plus d'email généré du tout). `User.email` optionnel pour role=agent (required uniquement patron), index unique passé en `sparse:true`. `server.js` synchronise automatiquement l'index au démarrage (`User.syncIndexes()`) — pas de script de migration manuel nécessaire. Rétrocompatible : agents créés avant ce changement gardent leur email et continuent de fonctionner.
+- **Bug critique découvert** : `PATCH /api/agents/:id` (modification nom/tél/reset mdp d'un agent) tapait dans un système **totalement séparé et legacy** — l'ancien système d'agents à QR code (`agent.controller.js`/`agent.routes.js`, modèle `Agent` distinct de `User`, collection vide en prod). Ne trouvait jamais l'agent réel → 404 → "Erreur de modification" côté patron à chaque tentative. Nouvel endpoint `modifierAgentInfos` créé dans `boutique.controller.js` (le bon endroit, comme `creerAgent`/`toggleAgent`/`resetPasswordAgent`), route `PATCH /api/boutiques/agents/:agentId`. **Le système `agent.controller.js`/`agent.routes.js` legacy reste en place mais n'est plus appelé par le frontend actuel — vestige à nettoyer un jour si confirmé totalement mort.**
+- `resetPasswordAgent` : `loginInfo` référençait encore `agent.email`, `undefined` pour un agent créé en téléphone-seul — corrigé.
+- `abonnementsARelancer` : nouveau paramètre `?tous=1` pour lister tout le portefeuille de patrons (pas seulement ceux à relancer sous 3j).
 
 ## À vérifier / recaler
 
-- La doc `ARCHITECTURE.md` du repo **frontend** (`smartstock-pwa`) contient une description de la structure backend **partiellement obsolète** : elle ne mentionne pas `client.controller.js`, `panier.controller.js`, `client.model.js`, `paiement.model.js` (système de vente à crédit, déjà en place dans ce repo).
+- L'`ARCHITECTURE.md` du repo **frontend** décrit une structure backend **partiellement obsolète** (ne mentionne pas `client.controller.js`/`panier.controller.js`/système de crédit, déjà en place).
+- **Système `agent.controller.js`/`agent.routes.js` legacy (QR code)** : plus utilisé par le frontend actuel (confirmé cette session), collection `Agent` vide en prod. Candidat à suppression complète si confirmé mort — vérifier qu'aucun autre appelant ne l'utilise avant de le retirer (ne pas le faire sans confirmation explicite de l'utilisateur, risque de casser quelque chose d'invisible).
 
 ## Pièges connus — ne pas rouvrir sauf nouveau signal
 
-_Rien de spécifique côté backend actuellement. Voir le repo frontend pour le point d'architecture "zoneless" (concerne le frontend, pas ce repo, mais explique plusieurs bugs UI de la session du 2026-08-15)._
+- **PAT exposés dans cette conversation à de très nombreuses reprises** (session très longue) — à révoquer et régénérer dès que possible, voir prompt de migration.
+- Voir le repo frontend pour le point d'architecture "zoneless" (concerne le frontend, explique plusieurs bugs UI de cette session) et le piège de build Vercel (erreurs de typage TS invisibles sans vérification du build réel).
 
 ## Convention de travail (résumé — détail complet dans `.github/copilot-instructions.md`)
 
@@ -44,8 +52,8 @@ _Rien de spécifique côté backend actuellement. Voir le repo frontend pour le 
 - `node -c fichier.js` après chaque édition (pas de build possible en sandbox).
 - Commits en français, détaillés, cause racine expliquée.
 - Tout changement infra (CORS, domaine, env vars) → vérifier aussi côté frontend.
-- Messages de commit avec backticks : utiliser `git commit -F fichier.txt` plutôt que `-m "..."` en bash double-quotes (les backticks y sont interprétés comme de la substitution de commande).
+- Messages de commit avec backticks : `git commit -F fichier.txt` plutôt que `-m "..."` en bash double-quotes.
 
 ## Comment mettre à jour ce fichier
 
-En fin de session : déplacer les items résolus vers `CHANGELOG.md` (commit hash + cause racine), garder "Bugs ouverts"/"Backlog priorisé" à jour, mettre à jour la date en haut.
+En fin de session : déplacer les items résolus vers `CHANGELOG.md` (commit hash + cause racine), garder "Bugs ouverts"/"Backlog" à jour, mettre à jour la date en haut.
