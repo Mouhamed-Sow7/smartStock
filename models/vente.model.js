@@ -7,7 +7,10 @@ const ligneVenteSchema = new mongoose.Schema({
   prixAchatUnitaire: { type: Number, default: 0 }, // snapshot prix d'achat au moment de la vente
   quantite:    { type: Number, required: true, min: 1 },
   sousTotal:   { type: Number, required: true },
-  margeLigne:  { type: Number, default: 0 }        // (prixUnitaire - prixAchatUnitaire) * quantite
+  margeLigne:  { type: Number, default: 0 },       // (prixUnitaire - prixAchatUnitaire) * quantite
+  // 'gros' seulement si le produit a un prixGros défini ET que l'agent a
+  // explicitement choisi ce mode à la vente — sinon toujours 'detail'.
+  typeVente:   { type: String, enum: ['detail', 'gros'], default: 'detail' },
 }, { _id: false });
 
 const venteSchema = new mongoose.Schema({

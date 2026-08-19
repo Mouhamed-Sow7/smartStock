@@ -48,6 +48,19 @@ const createVente = async (req, res) => {
     let montantTotal = 0;
     let margeTotale = 0;
     const lignes = [];
+
+    // Stock partagé entre détail et gros (même unité physique) : si un même
+    // produit apparaît sur plusieurs lignes du panier (ex: 3 en détail + 5 en
+    // gros du même article), il faut vérifier la quantité CUMULÉE contre le
+    // stock, pas chaque ligne isolément — sinon deux lignes peuvent chacune
+    // passer le contrôle individuellement tout en dépassant le stock réel une
+    // fois combinées.
+    const quantiteCumuleeParProduit = {};
+    for (const item of itemsPanier) {
+      const id = String(item.produitId);
+      quantiteCumuleeParProduit[id] = (quantiteCumuleeParProduit[id] || 0) + Number(item.quantite || 0);
+    }
+
     for (const item of itemsPanier) {
       // Un produitId non-ObjectId valide (ex: "temp_xxx", resté non résolu côté
       // client après une création offline jamais remappée) plantait Mongoose
@@ -70,7 +83,8 @@ const createVente = async (req, res) => {
             message: "Produit " + item.produitId + " non trouve",
           });
       }
-      if (produit.stock < item.quantite) {
+      const quantiteCumulee = quantiteCumuleeParProduit[String(item.produitId)];
+      if (produit.stock < quantiteCumulee) {
         return res
           .status(400)
           .json({
@@ -78,19 +92,28 @@ const createVente = async (req, res) => {
             message: "Stock insuffisant pour " + produit.nom,
           });
       }
-      const sousTotal = produit.prix * item.quantite;
+      // Prix toujours recalculé côté serveur à partir du produit en base —
+      // jamais depuis item.prixUnitaire envoyé par le client (falsifiable).
+      // 'gros' seulement si explicitement demandé ET que le produit a bien un
+      // prixGros configuré ; sinon on retombe silencieusement sur le prix
+      // détail habituel (évite une vente à 0 FCFA si prixGros a été retiré
+      // entre-temps côté catalogue).
+      const typeVente = item.typeVente === "gros" && produit.prixGros > 0 ? "gros" : "detail";
+      const prixUnitaire = typeVente === "gros" ? produit.prixGros : produit.prix;
+      const sousTotal = prixUnitaire * item.quantite;
       const prixAchatUnitaire = produit.prixAchat || 0;
-      const margeLigne = (produit.prix - prixAchatUnitaire) * item.quantite;
+      const margeLigne = (prixUnitaire - prixAchatUnitaire) * item.quantite;
       montantTotal += sousTotal;
       margeTotale += margeLigne;
       lignes.push({
         produitId: produit._id,
         nom: produit.nom,
-        prixUnitaire: produit.prix,
+        prixUnitaire,
         prixAchatUnitaire,
         quantite: item.quantite,
         sousTotal,
         margeLigne,
+        typeVente,
       });
     }
     // Vente à crédit : un nom de client est obligatoire, on retrouve/crée sa fiche

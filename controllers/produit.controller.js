@@ -213,6 +213,31 @@ const getProduitsStockBas = async (req, res) => {
   }
 };
 
+// GET /api/produits/expiration-proche?jours=14
+// Produits déjà périmés OU dont la date de péremption tombe dans les N
+// prochains jours (défaut 14) — sert uniquement à alerter le patron, aucune
+// vente n'est bloquée automatiquement sur cette base.
+const getProduitsExpirationProche = async (req, res) => {
+  try {
+    const tenantId = req.tenantId || "default";
+    const jours = Math.max(1, parseInt(req.query.jours, 10) || 14);
+    const seuil = new Date();
+    seuil.setDate(seuil.getDate() + jours);
+    const produits = await Produit.find({
+      tenantId,
+      dateExpiration: { $ne: null, $lte: seuil },
+    }).sort({ dateExpiration: 1 });
+    const maintenant = new Date();
+    const data = produits.map((p) => ({
+      ...p.toObject(),
+      perime: p.dateExpiration < maintenant,
+    }));
+    res.json({ success: true, data, count: data.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   getProduits,
   getProduitById,
@@ -223,4 +248,5 @@ module.exports = {
   updateStock,
   getProduitByCodeBarres,
   getProduitsStockBas,
+  getProduitsExpirationProche,
 };
