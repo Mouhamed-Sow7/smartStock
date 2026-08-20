@@ -196,8 +196,35 @@ const getVentes = async (req, res) => {
       filtre.agentId = { $in: agents.map(a => a._id.toString()) };
     }
     if (modePaiement) filtre.modePaiement = modePaiement;
-    const ventes = await Vente.find(filtre).sort({ createdAt: -1 });
-    res.json({ success: true, data: ventes, count: ventes.length });
+
+    // Pagination — voir STATE.md "Audit sécurité/performance 2026-08-20" :
+    // Vente grandit sans limite dans le temps (jamais purgé), contrairement
+    // aux produits (catalogue borné, rechargé entièrement en cache offline
+    // pour la recherche instantanée agent -- pas concerné par ce correctif,
+    // volontairement laissé tel quel). page/limit optionnels avec défauts
+    // raisonnables : un appel sans paramètre continue de fonctionner
+    // (rétrocompatible), mais ne rapatrie plus jamais la collection entière.
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    const [ventes, total] = await Promise.all([
+      Vente.find(filtre).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Vente.countDocuments(filtre),
+    ]);
+
+    res.json({
+      success: true,
+      data: ventes,
+      count: ventes.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+        hasMore: skip + ventes.length < total,
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
