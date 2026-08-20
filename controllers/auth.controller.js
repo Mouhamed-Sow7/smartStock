@@ -5,7 +5,8 @@ const Boutique = require("../models/boutique.model");
 const { normaliserTelephone } = require("../utils/phone");
 const { cascaderRenommageBoutique } = require("../utils/boutiqueRename");
 const { SEUIL_ALERTE_JOURS, calculerJoursRestants, statutEcheance } = require("../utils/echeance");
-const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
+const { resolveSecret } = require("../utils/secrets");
+const JWT_SECRET = resolveSecret("JWT_SECRET");
 const register = async (req, res) => {
   try {
     const { email, password, nom, boutique, telephone, role = "patron" } = req.body;

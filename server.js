@@ -44,7 +44,14 @@ app.get("/ping", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 app.use("/api", (req, res, next) => {
-  console.log("Route hit:", req.originalUrl);
+  // Log de diagnostic déclenché sur CHAQUE requête -- utile en tout début de
+  // développement, mais coûteux et bruyant maintenant que l'app tourne en
+  // prod (dilue les vrais messages d'erreur dans les logs Render, qui sont
+  // aussi soumis à des quotas de volume selon le plan). Ne logue plus qu'en
+  // dehors de production ; les erreurs réelles restent journalisées ailleurs.
+  if (process.env.NODE_ENV !== "production") {
+    console.log("Route hit:", req.originalUrl);
+  }
   next();
 });
 console.log("Configuration des routes...");

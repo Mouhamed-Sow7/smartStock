@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
   boutique:   { type: String, default: '' },      // label affiché
   boutiqueId: { type: mongoose.Schema.Types.ObjectId, ref: 'Boutique', default: null },
   role:       { type: String, enum: ['patron', 'agent'], required: true },
-  tenantId:   { type: String, required: true },
+  tenantId:   { type: String, required: true, index: true },
   actif:      { type: Boolean, default: true },
   // Abonnement SaaS (uniquement pertinent pour role='patron' — un agent ne
   // paie rien directement, c'est son patron qui règle pour toute la boutique).

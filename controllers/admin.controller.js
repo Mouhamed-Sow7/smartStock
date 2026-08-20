@@ -6,8 +6,9 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { genererMotDePasse } = require('../utils/password');
 const { SEUIL_ALERTE_JOURS, calculerJoursRestants, statutEcheance } = require('../utils/echeance');
+const { resolveSecret } = require('../utils/secrets');
 
-const ADMIN_KEY = process.env.ADMIN_SECRET_KEY || 'smartstock-admin-2024';
+const ADMIN_KEY = resolveSecret('ADMIN_SECRET_KEY');
 
 // Middleware : vérifie la clé admin dans le header
 exports.verifyAdminKey = (req, res, next) => {

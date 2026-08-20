@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
-const JWT_SECRET = process.env.JWT_SECRET || "smartstock-secret-key-2024";
+const { resolveSecret } = require("../utils/secrets");
+const JWT_SECRET = resolveSecret("JWT_SECRET");
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
