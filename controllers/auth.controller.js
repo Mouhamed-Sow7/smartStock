@@ -141,6 +141,7 @@ const login = async (req, res) => {
         boutiqueId: user.boutiqueId,
         role: user.role,
         tenantId: user.tenantId,
+        seuilExpirationJours: user.parametres?.seuilExpirationJours ?? 14,
       },
     });
   } catch (err) {
@@ -231,12 +232,15 @@ const changerMonMotDePasse = async (req, res) => {
 // avec la même cascade complète que côté admin (voir utils/boutiqueRename.js).
 const modifierMonProfil = async (req, res) => {
   try {
-    const { nom, email, telephone, boutique } = req.body;
+    const { nom, email, telephone, boutique, seuilExpirationJours } = req.body;
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
 
     if (boutique !== undefined && user.role !== 'patron') {
       return res.status(403).json({ success: false, message: "Seul le patron peut renommer la boutique" });
+    }
+    if (seuilExpirationJours !== undefined && user.role !== 'patron') {
+      return res.status(403).json({ success: false, message: "Seul le patron peut modifier ce réglage" });
     }
 
     if (email && email.toLowerCase().trim() !== user.email) {
@@ -262,6 +266,15 @@ const modifierMonProfil = async (req, res) => {
 
     if (nom && nom.trim()) user.nom = nom.trim();
 
+    if (seuilExpirationJours !== undefined) {
+      const val = parseInt(seuilExpirationJours, 10);
+      if (!val || val < 1 || val > 365) {
+        return res.status(400).json({ success: false, message: 'Le seuil doit être entre 1 et 365 jours' });
+      }
+      if (!user.parametres) user.parametres = {};
+      user.parametres.seuilExpirationJours = val;
+    }
+
     const boutiqueChangee = boutique !== undefined && boutique.trim() && boutique.trim() !== user.boutique;
     if (boutiqueChangee) user.boutique = boutique.trim();
 
@@ -278,6 +291,7 @@ const modifierMonProfil = async (req, res) => {
       data: {
         id: user._id, nom: user.nom, email: user.email, telephone: user.telephone,
         boutique: user.boutique, boutiqueId: user.boutiqueId, role: user.role, tenantId: user.tenantId,
+        seuilExpirationJours: user.parametres?.seuilExpirationJours ?? 14,
       },
       // [{agentId, ancienEmail, nouvelEmail}] -- à afficher clairement si non
       // vide : les agents concernés doivent être prévenus de leur nouvel

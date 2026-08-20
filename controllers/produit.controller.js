@@ -220,7 +220,15 @@ const getProduitsStockBas = async (req, res) => {
 const getProduitsExpirationProche = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
-    const jours = Math.max(1, parseInt(req.query.jours, 10) || 14);
+    // Priorité : ?jours= explicite (debug/admin) > préférence du patron >
+    // 14 par défaut si le patron n'a jamais touché ce réglage.
+    let jours = parseInt(req.query.jours, 10);
+    if (!jours) {
+      const User = require("../models/user.model");
+      const patron = await User.findOne({ tenantId, role: "patron" }).select("parametres");
+      jours = patron?.parametres?.seuilExpirationJours || 14;
+    }
+    jours = Math.max(1, jours);
     const seuil = new Date();
     seuil.setDate(seuil.getDate() + jours);
     const produits = await Produit.find({
@@ -232,7 +240,7 @@ const getProduitsExpirationProche = async (req, res) => {
       ...p.toObject(),
       perime: p.dateExpiration < maintenant,
     }));
-    res.json({ success: true, data, count: data.length });
+    res.json({ success: true, data, count: data.length, seuilJours: jours });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

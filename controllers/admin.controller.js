@@ -2,6 +2,7 @@ const User = require('../models/user.model');
 const { cascaderRenommageBoutique } = require('../utils/boutiqueRename');
 const Vente = require('../models/vente.model');
 const Client = require('../models/client.model');
+const Produit = require('../models/produit.model');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { genererMotDePasse } = require('../utils/password');
@@ -287,4 +288,82 @@ exports.resetPasswordByEmail = async (req, res) => {
       data: { email: user.email, role: user.role, motDePasseGenere: motDePasse }
     });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// ─── Portail d'indexation admin (rattrapage boutiques sans cahier) ────────
+// Un même produit commercial (ex: "Nescafé 100g", code-barres imprimé en
+// usine) est strictement identique d'une boutique à l'autre — seuls le
+// stock et la date de péremption sont propres à CE réassort précis dans
+// CETTE boutique. Ces deux endpoints permettent à l'admin de pré-remplir
+// nom/prix/catégorie depuis n'importe quel tenant ayant déjà indexé ce
+// code-barres, tout en forçant une vérification humaine du prix (les tarifs
+// varient d'un fournisseur/boutique à l'autre) et une saisie fraîche du
+// stock/péremption (jamais copiés — ce sont les seules infos qui ne se
+// partagent pas).
+
+// GET /api/admin/produits/lookup/:codeBarres
+// Recherche CROSS-TENANT (délibérément — l'isolation par tenant ne
+// s'applique pas ici, c'est le seul endroit de toute l'API où c'est le cas,
+// et c'est pour ça qu'il vit sous /admin avec sa propre clé, jamais sous
+// authMiddleware normal).
+exports.lookupProduitCrossTenant = async (req, res) => {
+  try {
+    const { codeBarres } = req.params;
+    if (!codeBarres || !codeBarres.trim()) {
+      return res.status(400).json({ success: false, message: 'Code-barres requis' });
+    }
+    const matches = await Produit.find({ codeBarres: codeBarres.trim() })
+      .sort({ updatedAt: -1 })
+      .limit(5)
+      .select('nom prix prixGros prixAchat categorie image codeBarres updatedAt tenantId');
+    if (matches.length === 0) {
+      return res.json({ success: true, trouve: false, data: null, nbBoutiques: 0 });
+    }
+    // Le plus récemment mis à jour = la donnée la plus probablement à jour
+    // (prix notamment). On ne renvoie QUE les champs partageables — jamais
+    // stock ni dateExpiration, propres à chaque réassort/boutique.
+    const plusRecent = matches[0];
+    res.json({
+      success: true,
+      trouve: true,
+      nbBoutiques: new Set(matches.map(m => String(m.tenantId))).size,
+      data: {
+        nom: plusRecent.nom,
+        prix: plusRecent.prix,
+        prixGros: plusRecent.prixGros,
+        prixAchat: plusRecent.prixAchat,
+        categorie: plusRecent.categorie,
+        image: plusRecent.image,
+        codeBarres: plusRecent.codeBarres,
+      },
+    });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// POST /api/admin/produits
+// Création d'un produit pour un tenant choisi explicitement par l'admin
+// (body.tenantId) — impossible via l'API normale où le tenant vient
+// toujours du JWT de la personne connectée. Le tenant ciblé DOIT
+// correspondre à un patron déjà enregistré (jamais de tenantId inventé).
+exports.creerProduitPourTenant = async (req, res) => {
+  try {
+    const { tenantId, ...rest } = req.body;
+    if (!tenantId) {
+      return res.status(400).json({ success: false, message: 'tenantId requis' });
+    }
+    const patron = await User.findOne({ tenantId, role: 'patron' });
+    if (!patron) {
+      return res.status(404).json({ success: false, message: 'Aucun patron enregistré pour ce tenantId' });
+    }
+    let { codeBarres } = rest;
+    if (!codeBarres || !codeBarres.trim()) {
+      codeBarres = `SS-${Date.now()}`;
+    }
+    const existant = await Produit.findOne({ codeBarres, tenantId });
+    if (existant) {
+      return res.status(400).json({ success: false, message: 'Un produit avec ce code-barres existe déjà dans cette boutique' });
+    }
+    const produit = await Produit.create({ ...rest, codeBarres, tenantId });
+    res.status(201).json({ success: true, data: produit, boutique: patron.boutique });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
 };

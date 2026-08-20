@@ -28,6 +28,19 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
   },
+  // Préférences propres à chaque patron (uniquement pertinent pour
+  // role='patron' — un agent hérite silencieusement des réglages de son
+  // patron via une lecture par tenantId, jamais une copie). Seuil unique
+  // pour l'instant ; regroupé dans un sous-objet pour ajouter d'autres
+  // préférences plus tard sans multiplier les champs top-level.
+  parametres: {
+    // Nombre de jours avant péremption à partir duquel un produit apparaît
+    // dans les alertes (dashboard + filtre Produits). Chaque patron gère sa
+    // boutique différemment (denrées périssables vs quincaillerie) — pas de
+    // valeur universelle correcte, d'où le rendre réglable plutôt que de
+    // garder les 14 jours codés en dur.
+    seuilExpirationJours: { type: Number, default: 14, min: 1, max: 365 },
+  },
 }, { timestamps: true });
 
 userSchema.pre('save', async function () {

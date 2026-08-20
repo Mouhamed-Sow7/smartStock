@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { verifyAdminKey, listUsers, createPatron, toggleUser, resetPassword, deleteUser, editUser, getTeam, globalStats, purgeVentes, debugAgents, resetPasswordByEmail, relancesGlobales, abonnementsARelancer, renouvelerAbonnement } = require('../controllers/admin.controller');
+const { verifyAdminKey, listUsers, createPatron, toggleUser, resetPassword, deleteUser, editUser, getTeam, globalStats, purgeVentes, debugAgents, resetPasswordByEmail, relancesGlobales, abonnementsARelancer, renouvelerAbonnement, lookupProduitCrossTenant, creerProduitPourTenant } = require('../controllers/admin.controller');
 
 router.use(verifyAdminKey);
 router.get('/stats', globalStats);
@@ -17,4 +17,7 @@ router.patch('/reset-by-email', resetPasswordByEmail);  // déblocage agent par 
 router.delete('/users/:id', deleteUser);
 router.get('/tenants/:tenantId/team', getTeam);
 router.delete('/ventes', purgeVentes);
+// Portail d'indexation admin (rattrapage boutiques sans cahier)
+router.get('/produits/lookup/:codeBarres', lookupProduitCrossTenant);
+router.post('/produits', creerProduitPourTenant);
 module.exports = router;
