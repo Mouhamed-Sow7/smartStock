@@ -420,6 +420,110 @@ const getStats = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+// PATCH /api/ventes/:id/corriger
+// Permet de corriger a posteriori une vente déjà enregistrée : le mode de
+// paiement (agent sur SA vente, ou patron sur n'importe quelle vente du
+// tenant) et/ou le prix d'une ligne (patron uniquement — un agent qui se
+// trompe de prix doit prévenir le patron, qui corrige lui-même : évite
+// qu'un agent puisse discrètement modifier un montant encaissé).
+// Fenêtre de 24h après la vente, pour les deux types de correction et les
+// deux rôles — au-delà, plus aucune modification (traçabilité comptable).
+const corrigerVente = async (req, res) => {
+  try {
+    const tenantId = req.tenantId || "default";
+    const { id } = req.params;
+    const { modePaiement, ligneIndex, prixUnitaire } = req.body;
+    const role = req.user?.role;
+
+    const vente = await Vente.findOne({ _id: id, tenantId });
+    if (!vente) {
+      return res.status(404).json({ success: false, message: "Vente non trouvée" });
+    }
+    if (vente.statut === "annule") {
+      return res.status(400).json({ success: false, message: "Impossible de corriger une vente annulée" });
+    }
+
+    const DELAI_MS = 24 * 60 * 60 * 1000;
+    const age = Date.now() - new Date(vente.createdAt).getTime();
+    if (age > DELAI_MS) {
+      return res.status(403).json({
+        success: false,
+        message: "Cette vente date de plus de 24h — correction impossible",
+      });
+    }
+
+    if (role === "agent" && String(vente.agentId) !== String(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: "Vous ne pouvez corriger que vos propres ventes",
+      });
+    }
+
+    const nomAuteur = (await User.findById(req.user.id).select("nom"))?.nom
+      || (role === "patron" ? "Patron" : "Agent");
+    let modifie = false;
+
+    // ── Correction du mode de paiement (agent sur sa vente, ou patron) ──
+    if (modePaiement !== undefined && modePaiement !== vente.modePaiement) {
+      const modesValides = ["especes", "wave", "orange_money", "free_money", "credit"];
+      if (!modesValides.includes(modePaiement)) {
+        return res.status(400).json({ success: false, message: "Mode de paiement invalide" });
+      }
+      vente.corrections.push({
+        parRole: role, parNom: nomAuteur, champ: "modePaiement",
+        avant: vente.modePaiement, apres: modePaiement,
+      });
+      vente.modePaiement = modePaiement;
+      modifie = true;
+    }
+
+    // ── Correction du prix d'une ligne (patron uniquement) ──
+    if (prixUnitaire !== undefined) {
+      if (role !== "patron") {
+        return res.status(403).json({
+          success: false,
+          message: "Seul le patron peut corriger un prix — l'agent doit le signaler directement",
+        });
+      }
+      const idx = parseInt(ligneIndex, 10);
+      const ligne = vente.produits[idx];
+      if (!ligne) {
+        return res.status(400).json({ success: false, message: "Ligne de vente introuvable" });
+      }
+      const nouveauPrix = Number(prixUnitaire);
+      if (!(nouveauPrix >= 0)) {
+        return res.status(400).json({ success: false, message: "Prix invalide" });
+      }
+      if (nouveauPrix !== ligne.prixUnitaire) {
+        vente.corrections.push({
+          parRole: role, parNom: nomAuteur, champ: "prixUnitaire", ligneIndex: idx,
+          avant: ligne.prixUnitaire, apres: nouveauPrix,
+        });
+        // Recalcul en cascade : sousTotal de la ligne, marge de la ligne,
+        // puis montantTotal et margeTotale de la vente entière — jamais
+        // laisser ces totaux désynchronisés du détail des lignes.
+        const ancienSousTotal = ligne.sousTotal;
+        const ancienneMarge = ligne.margeLigne;
+        ligne.prixUnitaire = nouveauPrix;
+        ligne.sousTotal = nouveauPrix * ligne.quantite;
+        ligne.margeLigne = (nouveauPrix - (ligne.prixAchatUnitaire || 0)) * ligne.quantite;
+        vente.montantTotal += ligne.sousTotal - ancienSousTotal;
+        vente.margeTotale += ligne.margeLigne - ancienneMarge;
+        modifie = true;
+      }
+    }
+
+    if (!modifie) {
+      return res.status(400).json({ success: false, message: "Aucune modification à appliquer" });
+    }
+
+    await vente.save();
+    res.json({ success: true, message: "Vente corrigée", data: vente });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   createVente,
   getVentes,
@@ -427,4 +531,5 @@ module.exports = {
   annulerVente,
   getStats,
   getAgentsPourFiltre,
+  corrigerVente,
 };

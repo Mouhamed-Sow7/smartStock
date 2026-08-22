@@ -8,7 +8,8 @@ const {
   getVenteById,
   annulerVente,
   getStats,
-  getAgentsPourFiltre
+  getAgentsPourFiltre,
+  corrigerVente
 } = require('../controllers/vente.controller');
 
 router.use(authMiddleware);
@@ -33,5 +34,9 @@ router.route('/:id')
 // Annulation
 router.route('/:id/annuler')
   .patch(annulerVente);
+
+// Correction a posteriori (mode de paiement / prix d'une ligne) — fenêtre 24h
+router.route('/:id/corriger')
+  .patch(corrigerVente);
 
 module.exports = router;
