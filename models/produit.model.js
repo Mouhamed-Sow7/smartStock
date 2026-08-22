@@ -12,6 +12,13 @@ const produitSchema = new mongoose.Schema(
     prixGros: { type: Number, default: 0, min: 0 },
     prixAchat: { type: Number, default: 0, min: 0 },
     stock: { type: Number, default: 0, min: 0 },
+    // Stock "en gros" — pool séparé du stock détail (pas le même stock avec
+    // juste un prix différent : beaucoup de commerçants réservent
+    // physiquement une partie de leur arrivage au détail et une autre au
+    // gros, ex: cartons scellés vs unités déjà déballées). Ne compte/décompte
+    // que pour les ventes typeVente==='gros'. 0 par défaut — sans incidence
+    // sur les produits vendus uniquement au détail (prixGros non défini).
+    stockGros: { type: Number, default: 0, min: 0 },
     seuilAlerte: { type: Number, default: 5 },
     categorie: { type: String, default: "Général" },
     codeBarres: { type: String, default: "" },

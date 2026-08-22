@@ -49,16 +49,13 @@ const createVente = async (req, res) => {
     let margeTotale = 0;
     const lignes = [];
 
-    // Stock partagé entre détail et gros (même unité physique) : si un même
-    // produit apparaît sur plusieurs lignes du panier (ex: 3 en détail + 5 en
-    // gros du même article), il faut vérifier la quantité CUMULÉE contre le
-    // stock, pas chaque ligne isolément — sinon deux lignes peuvent chacune
-    // passer le contrôle individuellement tout en dépassant le stock réel une
-    // fois combinées.
-    const quantiteCumuleeParProduit = {};
+    // Stock désormais séparé par pool (détail vs gros — voir produit.model.js) :
+    // on agrège les quantités par (produit + type de vente), jamais tous types
+    // confondus, puisque chaque pool a son propre compteur indépendant.
+    const quantiteCumuleeParCle = {};
     for (const item of itemsPanier) {
-      const id = String(item.produitId);
-      quantiteCumuleeParProduit[id] = (quantiteCumuleeParProduit[id] || 0) + Number(item.quantite || 0);
+      const cle = `${item.produitId}::${item.typeVente === "gros" ? "gros" : "detail"}`;
+      quantiteCumuleeParCle[cle] = (quantiteCumuleeParCle[cle] || 0) + Number(item.quantite || 0);
     }
 
     for (const item of itemsPanier) {
@@ -83,15 +80,6 @@ const createVente = async (req, res) => {
             message: "Produit " + item.produitId + " non trouve",
           });
       }
-      const quantiteCumulee = quantiteCumuleeParProduit[String(item.produitId)];
-      if (produit.stock < quantiteCumulee) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Stock insuffisant pour " + produit.nom,
-          });
-      }
       // Prix toujours recalculé côté serveur à partir du produit en base —
       // jamais depuis item.prixUnitaire envoyé par le client (falsifiable).
       // 'gros' seulement si explicitement demandé ET que le produit a bien un
@@ -99,6 +87,17 @@ const createVente = async (req, res) => {
       // détail habituel (évite une vente à 0 FCFA si prixGros a été retiré
       // entre-temps côté catalogue).
       const typeVente = item.typeVente === "gros" && produit.prixGros > 0 ? "gros" : "detail";
+      const cle = `${item.produitId}::${typeVente}`;
+      const quantiteCumulee = quantiteCumuleeParCle[cle];
+      const stockDisponible = typeVente === "gros" ? produit.stockGros : produit.stock;
+      if (stockDisponible < quantiteCumulee) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: `Stock ${typeVente === "gros" ? "gros" : "détail"} insuffisant pour ${produit.nom}`,
+          });
+      }
       const prixUnitaire = typeVente === "gros" ? produit.prixGros : produit.prix;
       const sousTotal = prixUnitaire * item.quantite;
       const prixAchatUnitaire = produit.prixAchat || 0;
@@ -128,8 +127,9 @@ const createVente = async (req, res) => {
     }
 
     for (const item of itemsPanier) {
+      const typeVente = item.typeVente === "gros" ? "gros" : "detail";
       await Produit.findByIdAndUpdate(item.produitId, {
-        $inc: { stock: -item.quantite },
+        $inc: typeVente === "gros" ? { stockGros: -item.quantite } : { stock: -item.quantite },
       });
     }
     const numeroTicket = await genererNumeroTicket();
@@ -275,8 +275,12 @@ const annulerVente = async (req, res) => {
         .json({ success: false, message: "Vente deja annulee" });
     }
     for (const ligne of vente.produits) {
+      // Restaure au bon pool — une vente annulée doit rendre le stock
+      // exactement là où il a été prélevé (detail vs gros), jamais à
+      // l'autre pool par erreur.
+      const champ = ligne.typeVente === "gros" ? "stockGros" : "stock";
       await Produit.findByIdAndUpdate(ligne.produitId, {
-        $inc: { stock: ligne.quantite },
+        $inc: { [champ]: ligne.quantite },
       });
     }
     vente.statut = "annule";

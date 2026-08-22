@@ -134,7 +134,7 @@ const deleteProduit = async (req, res) => {
 // PATCH /api/produits/:id/stock
 const updateStock = async (req, res) => {
   try {
-    const { quantite, type } = req.body;
+    const { quantite, type, champ } = req.body;
     const tenantId = req.tenantId || "default";
 
     if (!quantite || !type) {
@@ -143,6 +143,10 @@ const updateStock = async (req, res) => {
         message: "quantite et type (entree/sortie) requis",
       });
     }
+    // 'stockGros' seulement si explicitement demandé — comportement historique
+    // (ajuster le stock détail) inchangé par défaut pour tous les appels
+    // existants qui n'envoient pas ce champ.
+    const cible = champ === "stockGros" ? "stockGros" : "stock";
 
     const produit = await Produit.findOne({ _id: req.params.id, tenantId });
     if (!produit) {
@@ -152,14 +156,14 @@ const updateStock = async (req, res) => {
     }
 
     if (type === "entree") {
-      produit.stock += quantite;
+      produit[cible] += quantite;
     } else if (type === "sortie") {
-      if (produit.stock < quantite) {
+      if (produit[cible] < quantite) {
         return res
           .status(400)
-          .json({ success: false, message: "Stock insuffisant" });
+          .json({ success: false, message: `Stock ${cible === "stockGros" ? "gros" : "détail"} insuffisant` });
       }
-      produit.stock -= quantite;
+      produit[cible] -= quantite;
     } else {
       return res.status(400).json({
         success: false,
@@ -205,7 +209,14 @@ const getProduitsStockBas = async (req, res) => {
     const tenantId = req.tenantId || "default";
     const produits = await Produit.find({
       tenantId,
-      $expr: { $lte: ["$stock", "$seuilAlerte"] },
+      $or: [
+        { $expr: { $lte: ["$stock", "$seuilAlerte"] } },
+        // Le pool gros n'est alerté que pour les produits qui l'utilisent
+        // réellement (prixGros défini) — sinon stockGros=0 par défaut
+        // déclencherait une fausse alerte sur tout produit vendu uniquement
+        // au détail.
+        { prixGros: { $gt: 0 }, $expr: { $lte: ["$stockGros", "$seuilAlerte"] } },
+      ],
     });
     res.json({ success: true, data: produits, count: produits.length });
   } catch (err) {
