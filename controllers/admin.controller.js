@@ -3,6 +3,9 @@ const { cascaderRenommageBoutique } = require('../utils/boutiqueRename');
 const Vente = require('../models/vente.model');
 const Client = require('../models/client.model');
 const Produit = require('../models/produit.model');
+const Boutique = require('../models/boutique.model');
+const Paiement = require('../models/paiement.model');
+const Agent = require('../models/agent.model'); // legacy — vide en prod mais exporté par prudence
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { genererMotDePasse } = require('../utils/password');
@@ -366,4 +369,91 @@ exports.creerProduitPourTenant = async (req, res) => {
     const produit = await Produit.create({ ...rest, codeBarres, tenantId });
     res.status(201).json({ success: true, data: produit, boutique: patron.boutique });
   } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+};
+
+// ─── Sauvegarde manuelle (backup) ──────────────────────────────────────
+// GET /api/admin/backup?tenantId=xxx (optionnel — toutes boutiques si omis)
+// Export JSON complet de toutes les collections, à la demande. Pensé comme
+// un filet de sécurité manuel déclenché avant une mise à jour risquée ou
+// périodiquement — PAS un backup automatique programmé (Render/l'API ne
+// tourne pas de cron persistant ici). Mots de passe systématiquement
+// exclus. Le fichier réponse peut être sauvegardé tel quel par l'admin
+// (bouton "Télécharger" côté frontend) — voir restaurerDepuisBackup pour
+// le chemin de restauration en cas de besoin.
+exports.exporterBackup = async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId;
+    const filtre = tenantId ? { tenantId } : {};
+
+    const [users, produits, ventes, clients, paiements, boutiques, agentsLegacy] = await Promise.all([
+      User.find(filtre).select('-password').lean(),
+      Produit.find(filtre).lean(),
+      Vente.find(filtre).lean(),
+      Client.find(filtre).lean(),
+      Paiement.find(filtre).lean(),
+      Boutique.find(filtre).lean(),
+      Agent.find(filtre).lean(),
+    ]);
+
+    res.json({
+      success: true,
+      genereLe: new Date().toISOString(),
+      tenantId: tenantId || 'TOUS',
+      compteurs: {
+        users: users.length, produits: produits.length, ventes: ventes.length,
+        clients: clients.length, paiements: paiements.length, boutiques: boutiques.length,
+        agentsLegacy: agentsLegacy.length,
+      },
+      data: { users, produits, ventes, clients, paiements, boutiques, agentsLegacy },
+    });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// POST /api/admin/backup/restaurer
+// Restauration à partir d'un export produit par exporterBackup ci-dessus.
+// Volontairement PRUDENT : n'écrase RIEN par défaut — insère seulement les
+// documents dont l'_id n'existe pas déjà (upsert non-destructif). Un vrai
+// écrasement (mode "remplacer") demande une confirmation explicite en plus
+// de la clé admin, pour qu'une restauration ne puisse jamais effacer des
+// ventes faites depuis la sauvegarde par erreur de manipulation.
+exports.restaurerDepuisBackup = async (req, res) => {
+  try {
+    const { data, confirmerRemplacement } = req.body;
+    if (!data || typeof data !== 'object') {
+      return res.status(400).json({ success: false, message: 'Fichier de sauvegarde invalide' });
+    }
+    const collections = {
+      users: User, produits: Produit, ventes: Vente, clients: Client,
+      paiements: Paiement, boutiques: Boutique, agentsLegacy: Agent,
+    };
+    const resultat = {};
+    for (const [cle, Modele] of Object.entries(collections)) {
+      const documents = Array.isArray(data[cle]) ? data[cle] : [];
+      let inseres = 0, ignores = 0, remplaces = 0, erreurs = 0;
+      for (const doc of documents) {
+        try {
+          const existant = await Modele.findById(doc._id);
+          if (existant && !confirmerRemplacement) {
+            ignores++;
+            continue;
+          }
+          if (existant && confirmerRemplacement) {
+            await Modele.replaceOne({ _id: doc._id }, doc);
+            remplaces++;
+          } else {
+            await Modele.create(doc);
+            inseres++;
+          }
+        } catch (erreurDoc) {
+          // Un document invalide (ex: un utilisateur sans mot de passe —
+          // volontairement exclu du backup pour ne jamais faire circuler de
+          // hash dans un fichier téléchargeable) ne doit jamais interrompre
+          // la restauration du reste de la collection.
+          erreurs++;
+        }
+      }
+      resultat[cle] = { inseres, ignores, remplaces, erreurs };
+    }
+    res.json({ success: true, message: 'Restauration terminée', resultat });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
