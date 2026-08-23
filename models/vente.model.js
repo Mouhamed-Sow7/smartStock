@@ -40,6 +40,15 @@ const venteSchema = new mongoose.Schema({
     avant: { type: mongoose.Schema.Types.Mixed },
     apres: { type: mongoose.Schema.Types.Mixed },
   }],
+  // Trace de l'annulation (statut==='annule') — qui, quand, pourquoi. motif
+  // typiquement "Signalé par le client" ou une note libre du patron/agent.
+  // Optionnel/absent tant que la vente n'a jamais été annulée.
+  annulation: {
+    date: { type: Date, default: null },
+    parRole: { type: String, enum: ['agent', 'patron'], default: null },
+    parNom: { type: String, default: '' },
+    motif: { type: String, default: '' },
+  },
 }, { timestamps: true }); // createdAt = date/heure de la vente
 
 // Index pour les rapports par date

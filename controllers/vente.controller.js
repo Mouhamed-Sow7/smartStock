@@ -261,10 +261,9 @@ const getVenteById = async (req, res) => {
 };
 const annulerVente = async (req, res) => {
   try {
-    const vente = await Vente.findOne({
-      _id: req.params.id,
-      tenantId: req.tenantId || "default",
-    });
+    const tenantId = req.tenantId || "default";
+    const role = req.user?.role;
+    const vente = await Vente.findOne({ _id: req.params.id, tenantId });
     if (!vente)
       return res
         .status(404)
@@ -274,6 +273,30 @@ const annulerVente = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Vente deja annulee" });
     }
+
+    // Même règle que corrigerVente : un agent ne peut annuler que ses
+    // propres ventes, le patron peut annuler n'importe quelle vente du
+    // tenant. Le rôle vient du JWT, donc infalsifiable côté client.
+    if (role === "agent" && String(vente.agentId) !== String(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: "Vous ne pouvez annuler que vos propres ventes",
+      });
+    }
+
+    // Même fenêtre de 24h que la correction a posteriori — au-delà, seule
+    // une régularisation manuelle par le patron (ajustement de stock, note)
+    // a du sens, pas une annulation automatique qui pourrait surprendre
+    // (stock restauré plusieurs jours après, décalé d'un inventaire entre-temps).
+    const DELAI_MS = 24 * 60 * 60 * 1000;
+    const age = Date.now() - new Date(vente.createdAt).getTime();
+    if (age > DELAI_MS) {
+      return res.status(403).json({
+        success: false,
+        message: "Cette vente date de plus de 24h — annulation impossible",
+      });
+    }
+
     for (const ligne of vente.produits) {
       // Restaure au bon pool — une vente annulée doit rendre le stock
       // exactement là où il a été prélevé (detail vs gros), jamais à
@@ -283,7 +306,31 @@ const annulerVente = async (req, res) => {
         $inc: { [champ]: ligne.quantite },
       });
     }
+
+    // Reprise du crédit client si la vente était payée "à crédit" — sinon
+    // le solde dû du client resterait gonflé d'une vente qui n'a plus
+    // existé. Note : les Paiement ne sont volontairement pas rattachés à
+    // une vente précise (remboursement générique de l'ardoise), donc si le
+    // client a déjà remboursé plus que ce que laisserait cette seule vente,
+    // on plafonne à 0 plutôt que de faire passer soldeDu en négatif.
+    if (vente.modePaiement === "credit" && vente.clientId) {
+      await Client.findByIdAndUpdate(vente.clientId, [
+        { $set: { soldeDu: { $max: [0, { $subtract: ["$soldeDu", vente.montantTotal] }] } } },
+      ]);
+    }
+
+    const nomAuteur =
+      (await User.findById(req.user.id).select("nom"))?.nom ||
+      (role === "patron" ? "Patron" : "Agent");
+    const motif = (req.body?.motif || "").toString().trim().slice(0, 300);
+
     vente.statut = "annule";
+    vente.annulation = {
+      date: new Date(),
+      parRole: role,
+      parNom: nomAuteur,
+      motif,
+    };
     await vente.save();
     res.json({
       success: true,
