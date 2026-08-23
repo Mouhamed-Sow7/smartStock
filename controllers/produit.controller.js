@@ -64,6 +64,21 @@ const getBarcode = async (req, res) => {
 };
 
 // POST /api/produits
+// Un produit en modeStock 'lie' n'a de sens que si uniteParGros est
+// renseigné (>0) — sans lui, impossible de savoir combien d'unités détail
+// retirer/restaurer lors d'une vente/annulation en gros. Ne bloque que le
+// cas où le gros est réellement utilisable (prixGros>0) : un produit en
+// 'lie' sans prixGros n'a aucune vente gros possible, donc rien à valider.
+function validerModeStockLie({ modeStock, prixGros, uniteParGros }) {
+  if (modeStock === "lie" && (prixGros || 0) > 0 && !((uniteParGros || 0) > 0)) {
+    const err = new Error(
+      "Stock lié : indiquez combien d'unités détail contient une unité gros",
+    );
+    err.status = 400;
+    throw err;
+  }
+}
+
 const createProduit = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
@@ -83,10 +98,11 @@ const createProduit = async (req, res) => {
       });
     }
 
+    validerModeStockLie(rest);
     const produit = await Produit.create({ ...rest, codeBarres, tenantId });
     res.status(201).json({ success: true, data: produit });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.status || 400).json({ success: false, message: err.message });
   }
 };
 
@@ -94,6 +110,20 @@ const createProduit = async (req, res) => {
 const updateProduit = async (req, res) => {
   try {
     const tenantId = req.tenantId || "default";
+    // Le body peut être un update partiel (ex: juste { modeStock: 'lie' }
+    // depuis le formulaire) — on fusionne avec le produit existant pour
+    // valider la combinaison modeStock/prixGros/uniteParGros réellement
+    // effective après la mise à jour, pas juste les champs envoyés isolément.
+    const existant = await Produit.findOne({ _id: req.params.id, tenantId });
+    if (!existant) {
+      return res.status(404).json({ success: false, message: "Produit non trouvé" });
+    }
+    validerModeStockLie({
+      modeStock: req.body.modeStock ?? existant.modeStock,
+      prixGros: req.body.prixGros ?? existant.prixGros,
+      uniteParGros: req.body.uniteParGros ?? existant.uniteParGros,
+    });
+
     const produit = await Produit.findOneAndUpdate(
       { _id: req.params.id, tenantId },
       req.body,
@@ -107,7 +137,7 @@ const updateProduit = async (req, res) => {
     }
     res.json({ success: true, data: produit });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.status || 400).json({ success: false, message: err.message });
   }
 };
 

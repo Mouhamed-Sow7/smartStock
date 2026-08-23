@@ -89,8 +89,24 @@ const createVente = async (req, res) => {
       const typeVente = item.typeVente === "gros" && produit.prixGros > 0 ? "gros" : "detail";
       const cle = `${item.produitId}::${typeVente}`;
       const quantiteCumulee = quantiteCumuleeParCle[cle];
-      const stockDisponible = typeVente === "gros" ? produit.stockGros : produit.stock;
-      if (stockDisponible < quantiteCumulee) {
+      // En modeStock 'lie', il n'y a qu'un seul stock physique réel (`stock`,
+      // en unités détail) : une vente gros de N lots en retire N*uniteParGros
+      // d'un coup. En 'separe' (comportement historique), stockGros reste
+      // son propre pool indépendant, inchangé.
+      const venteEnGrosLie = typeVente === "gros" && produit.modeStock === "lie";
+      const stockDisponible = venteEnGrosLie
+        ? produit.stock
+        : typeVente === "gros" ? produit.stockGros : produit.stock;
+      const quantiteRequise = venteEnGrosLie
+        ? quantiteCumulee * (produit.uniteParGros || 0)
+        : quantiteCumulee;
+      if (venteEnGrosLie && !(produit.uniteParGros > 0)) {
+        return res.status(400).json({
+          success: false,
+          message: `${produit.nom} : stock lié mal configuré (unités par gros manquantes) — contactez le patron`,
+        });
+      }
+      if (stockDisponible < quantiteRequise) {
         return res
           .status(400)
           .json({
@@ -113,6 +129,8 @@ const createVente = async (req, res) => {
         sousTotal,
         margeLigne,
         typeVente,
+        modeStockAuMoment: produit.modeStock || "separe",
+        uniteParGrosAuMoment: produit.uniteParGros || 0,
       });
     }
     // Vente à crédit : un nom de client est obligatoire, on retrouve/crée sa fiche
@@ -128,9 +146,21 @@ const createVente = async (req, res) => {
 
     for (const item of itemsPanier) {
       const typeVente = item.typeVente === "gros" ? "gros" : "detail";
-      await Produit.findByIdAndUpdate(item.produitId, {
-        $inc: typeVente === "gros" ? { stockGros: -item.quantite } : { stock: -item.quantite },
-      });
+      const produitLigne = lignes.find(
+        (l) => String(l.produitId) === String(item.produitId) && l.typeVente === typeVente,
+      );
+      const venteEnGrosLie = typeVente === "gros" && produitLigne?.modeStockAuMoment === "lie";
+      if (venteEnGrosLie) {
+        // Stock lié : un seul compteur physique (`stock`), une vente gros
+        // retire quantite*uniteParGros unités détail d'un coup.
+        await Produit.findByIdAndUpdate(item.produitId, {
+          $inc: { stock: -(item.quantite * (produitLigne.uniteParGrosAuMoment || 0)) },
+        });
+      } else {
+        await Produit.findByIdAndUpdate(item.produitId, {
+          $inc: typeVente === "gros" ? { stockGros: -item.quantite } : { stock: -item.quantite },
+        });
+      }
     }
     const numeroTicket = await genererNumeroTicket();
     const vente = await Vente.create({
@@ -298,13 +328,21 @@ const annulerVente = async (req, res) => {
     }
 
     for (const ligne of vente.produits) {
-      // Restaure au bon pool — une vente annulée doit rendre le stock
-      // exactement là où il a été prélevé (detail vs gros), jamais à
-      // l'autre pool par erreur.
-      const champ = ligne.typeVente === "gros" ? "stockGros" : "stock";
-      await Produit.findByIdAndUpdate(ligne.produitId, {
-        $inc: { [champ]: ligne.quantite },
-      });
+      // Restaure au bon pool — TOUJOURS d'après le snapshot pris au moment
+      // de la vente (ligne.modeStockAuMoment), jamais la config actuelle du
+      // produit : si le patron a changé 'separe'/'lie' entre-temps, annuler
+      // doit rendre le stock exactement là où il a été prélevé à l'époque.
+      const venteEnGrosLie = ligne.typeVente === "gros" && ligne.modeStockAuMoment === "lie";
+      if (venteEnGrosLie) {
+        await Produit.findByIdAndUpdate(ligne.produitId, {
+          $inc: { stock: ligne.quantite * (ligne.uniteParGrosAuMoment || 0) },
+        });
+      } else {
+        const champ = ligne.typeVente === "gros" ? "stockGros" : "stock";
+        await Produit.findByIdAndUpdate(ligne.produitId, {
+          $inc: { [champ]: ligne.quantite },
+        });
+      }
     }
 
     // Reprise du crédit client si la vente était payée "à crédit" — sinon

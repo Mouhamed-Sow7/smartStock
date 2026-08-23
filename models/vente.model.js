@@ -11,6 +11,13 @@ const ligneVenteSchema = new mongoose.Schema({
   // 'gros' seulement si le produit a un prixGros défini ET que l'agent a
   // explicitement choisi ce mode à la vente — sinon toujours 'detail'.
   typeVente:   { type: String, enum: ['detail', 'gros'], default: 'detail' },
+  // Snapshot du mode de gestion de stock du produit AU MOMENT de la vente
+  // (voir produit.model.js modeStock/uniteParGros). Indispensable pour que
+  // l'annulation restaure le stock exactement là où il a été prélevé, même
+  // si le patron change ce réglage sur le produit entre-temps — jamais se
+  // fier à la config actuelle du produit pour annuler une vente passée.
+  modeStockAuMoment:   { type: String, enum: ['separe', 'lie'], default: 'separe' },
+  uniteParGrosAuMoment:{ type: Number, default: 0 },
 }, { _id: false });
 
 const venteSchema = new mongoose.Schema({

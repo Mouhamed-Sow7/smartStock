@@ -19,6 +19,24 @@ const produitSchema = new mongoose.Schema(
     // que pour les ventes typeVente==='gros'. 0 par défaut — sans incidence
     // sur les produits vendus uniquement au détail (prixGros non défini).
     stockGros: { type: Number, default: 0, min: 0 },
+    // Mode de gestion du stock gros — par défaut 'separe' (comportement
+    // historique, préserve tous les produits existants tel quel) :
+    //   'separe' : deux pools indépendants (stock détail et stockGros ne se
+    //     touchent jamais) — boutiques qui réservent physiquement une partie
+    //     de l'arrivage au détail et une autre au gros (cartons scellés vs
+    //     unités déjà déballées).
+    //   'lie' : un seul stock physique réel, exprimé en unités détail
+    //     (`stock`) — vendre "en gros" prélève uniteParGros unités détail
+    //     d'un coup sur ce même compteur. `stockGros` n'est alors plus la
+    //     source de vérité (laissé tel quel en base, non maintenu) : la
+    //     quantité de lots gros disponibles se déduit de stock/uniteParGros
+    //     côté frontend pour l'affichage.
+    modeStock: { type: String, enum: ["separe", "lie"], default: "separe" },
+    // Nombre d'unités détail contenues dans une unité gros (ex: 1 carton de
+    // "La vache qui rit" = 8 portions) — utilisé uniquement en modeStock
+    // 'lie', pour convertir une vente/annulation gros en déduction/ajout sur
+    // le stock détail unique. Sans incidence si modeStock==='separe'.
+    uniteParGros: { type: Number, default: 0, min: 0 },
     seuilAlerte: { type: Number, default: 5 },
     categorie: { type: String, default: "Général" },
     codeBarres: { type: String, default: "" },
