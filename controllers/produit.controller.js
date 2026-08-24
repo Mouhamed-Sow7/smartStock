@@ -1,6 +1,11 @@
 const Produit = require("../models/produit.model");
 const bwipjs = require("bwip-js");
 
+// Échappe les caractères spéciaux regex (même logique que vente.controller.js)
+function escapeRegExp(texte) {
+  return String(texte).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // GET /api/produits
 const getProduits = async (req, res) => {
   try {
@@ -96,6 +101,24 @@ const createProduit = async (req, res) => {
         success: false,
         message: "Un produit avec ce code-barres existe déjà",
       });
+    }
+
+    // Vérifier doublon de nom (insensible à la casse et aux espaces en trop)
+    // — sans ça "Yaourt" / "yaourt" / "YAOURT" se retrouvent en 3 fiches
+    // séparées, chacune avec son propre stock, ce qui fausse les stats et
+    // sème la confusion lors des ventes/indexations.
+    if (rest.nom && rest.nom.trim()) {
+      const nomTrimme = rest.nom.trim();
+      const doublonNom = await Produit.findOne({
+        tenantId,
+        nom: { $regex: `^${escapeRegExp(nomTrimme)}$`, $options: "i" },
+      });
+      if (doublonNom) {
+        return res.status(400).json({
+          success: false,
+          message: `Un produit nommé "${doublonNom.nom}" existe déjà — vérifiez qu'il ne s'agit pas du même produit avant d'en créer un nouveau.`,
+        });
+      }
     }
 
     validerModeStockLie(rest);

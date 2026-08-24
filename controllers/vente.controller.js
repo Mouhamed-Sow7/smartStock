@@ -202,14 +202,30 @@ const createVente = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+// Échappe les caractères spéciaux regex avant de les injecter dans un
+// $regex Mongo — sinon un agent/patron qui tape "a.b" ou "a(b" dans la
+// recherche produit provoquerait soit un résultat faussé (le "." matche
+// n'importe quel caractère), soit une erreur MongoServerError (parenthèse
+// non fermée).
+function escapeRegExp(texte) {
+  return String(texte).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const getVentes = async (req, res) => {
   try {
-    const { debut, fin, agentId, modePaiement, boutiqueId } = req.query;
+    const { debut, fin, agentId, modePaiement, boutiqueId, produit } = req.query;
     const filtre = { tenantId: req.tenantId || "default" };
     if (debut || fin) {
       filtre.createdAt = {};
       if (debut) filtre.createdAt["$gte"] = new Date(debut);
       if (fin) filtre.createdAt["$lte"] = new Date(fin);
+    }
+    // Recherche par nom de produit vendu — insensible à la casse (Yaourt /
+    // yaourt / YAOURT identiques), sur toute la collection (pas juste la
+    // page déjà chargée), utile pour retrouver "est-ce qu'une vente de ce
+    // produit a bien eu lieu" quand on a un doute, même ancien.
+    if (produit && produit.trim()) {
+      filtre["produits.nom"] = { $regex: escapeRegExp(produit.trim()), $options: "i" };
     }
     // Cloisonnement agent : un agent ne doit JAMAIS pouvoir lire les ventes
     // d'un autre agent, même en modifiant le paramètre ?agentId= dans l'URL.
