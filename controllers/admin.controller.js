@@ -309,18 +309,41 @@ exports.resetPasswordByEmail = async (req, res) => {
 // s'applique pas ici, c'est le seul endroit de toute l'API où c'est le cas,
 // et c'est pour ça qu'il vit sous /admin avec sa propre clé, jamais sous
 // authMiddleware normal).
+// GET /api/admin/produits/lookup/:codeBarres?tenantId=xxx
+// tenantId optionnel : si fourni (portail d'indexation, boutique cible
+// verrouillée pour la session), on vérifie EN PLUS si CETTE boutique
+// précise a déjà ce code-barres — cas différent du lookup cross-tenant
+// classique : ici il ne s'agit pas de préremplir une création, mais de
+// prévenir l'admin que ce produit existe déjà pour la boutique choisie
+// (modifier / ajouter du stock plutôt que créer un doublon).
 exports.lookupProduitCrossTenant = async (req, res) => {
   try {
     const { codeBarres } = req.params;
+    const tenantId = req.query.tenantId;
     if (!codeBarres || !codeBarres.trim()) {
       return res.status(400).json({ success: false, message: 'Code-barres requis' });
     }
+
+    if (tenantId) {
+      const dejaLa = await Produit.findOne({ codeBarres: codeBarres.trim(), tenantId });
+      if (dejaLa) {
+        return res.json({
+          success: true,
+          dejaDansBoutiqueCible: true,
+          produitBoutiqueCible: dejaLa,
+          trouve: false,
+          nbBoutiques: 0,
+          data: null,
+        });
+      }
+    }
+
     const matches = await Produit.find({ codeBarres: codeBarres.trim() })
       .sort({ updatedAt: -1 })
       .limit(5)
       .select('nom prix prixGros prixAchat categorie image codeBarres updatedAt tenantId');
     if (matches.length === 0) {
-      return res.json({ success: true, trouve: false, data: null, nbBoutiques: 0 });
+      return res.json({ success: true, dejaDansBoutiqueCible: false, trouve: false, data: null, nbBoutiques: 0 });
     }
     // Le plus récemment mis à jour = la donnée la plus probablement à jour
     // (prix notamment). On ne renvoie QUE les champs partageables — jamais
@@ -328,6 +351,7 @@ exports.lookupProduitCrossTenant = async (req, res) => {
     const plusRecent = matches[0];
     res.json({
       success: true,
+      dejaDansBoutiqueCible: false,
       trouve: true,
       nbBoutiques: new Set(matches.map(m => String(m.tenantId))).size,
       data: {
@@ -368,6 +392,55 @@ exports.creerProduitPourTenant = async (req, res) => {
     }
     const produit = await Produit.create({ ...rest, codeBarres, tenantId });
     res.status(201).json({ success: true, data: produit, boutique: patron.boutique });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+};
+
+// ─── Portail d'indexation admin — stock/édition ────────────────────────
+// PATCH /api/admin/produits/:id/stock — ajout de stock depuis le portail
+// d'indexation, quand le produit existe déjà pour la boutique cible.
+// Toujours un AJOUT relatif ($inc), jamais un remplacement -- cohérent
+// avec le réassort rapide normal (produit.controller.js updateStock),
+// pour éviter d'écraser par erreur un stock déjà géré par la boutique.
+exports.ajouterStockProduit = async (req, res) => {
+  try {
+    const { champ, quantite } = req.body;
+    if (!['stock', 'stockGros'].includes(champ)) {
+      return res.status(400).json({ success: false, message: "champ invalide (stock ou stockGros)" });
+    }
+    const qte = Number(quantite);
+    if (!(qte > 0)) {
+      return res.status(400).json({ success: false, message: 'Quantité invalide' });
+    }
+    const produit = await Produit.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { [champ]: qte } },
+      { new: true },
+    );
+    if (!produit) return res.status(404).json({ success: false, message: 'Produit non trouvé' });
+    res.json({ success: true, data: produit });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
+// PATCH /api/admin/produits/:id — édition légère depuis le portail
+// d'indexation (nom/prix/prixGros/prixAchat/categorie/seuilAlerte
+// uniquement). Volontairement PAS de modeStock/uniteParGros ici : ce
+// portail sert à rattraper vite une boutique sans cahier, pas à faire de
+// la gestion fine du stock gros -- le patron ajuste ça lui-même dans son
+// app s'il en a besoin (produit.controller.js updateProduit, avec sa
+// validation complète).
+exports.modifierProduitLeger = async (req, res) => {
+  try {
+    const { nom, prix, prixGros, prixAchat, categorie, seuilAlerte } = req.body;
+    const maj = {};
+    if (nom !== undefined) maj.nom = nom;
+    if (prix !== undefined) maj.prix = prix;
+    if (prixGros !== undefined) maj.prixGros = prixGros;
+    if (prixAchat !== undefined) maj.prixAchat = prixAchat;
+    if (categorie !== undefined) maj.categorie = categorie;
+    if (seuilAlerte !== undefined) maj.seuilAlerte = seuilAlerte;
+    const produit = await Produit.findByIdAndUpdate(req.params.id, maj, { new: true, runValidators: true });
+    if (!produit) return res.status(404).json({ success: false, message: 'Produit non trouvé' });
+    res.json({ success: true, data: produit });
   } catch (e) { res.status(400).json({ success: false, message: e.message }); }
 };
 

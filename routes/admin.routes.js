@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { verifyAdminKey, listUsers, createPatron, toggleUser, resetPassword, deleteUser, editUser, getTeam, globalStats, purgeVentes, debugAgents, resetPasswordByEmail, relancesGlobales, abonnementsARelancer, renouvelerAbonnement, lookupProduitCrossTenant, creerProduitPourTenant, exporterBackup, restaurerDepuisBackup } = require('../controllers/admin.controller');
+const { verifyAdminKey, listUsers, createPatron, toggleUser, resetPassword, deleteUser, editUser, getTeam, globalStats, purgeVentes, debugAgents, resetPasswordByEmail, relancesGlobales, abonnementsARelancer, renouvelerAbonnement, lookupProduitCrossTenant, creerProduitPourTenant, ajouterStockProduit, modifierProduitLeger, exporterBackup, restaurerDepuisBackup } = require('../controllers/admin.controller');
 
 router.use(verifyAdminKey);
 router.get('/stats', globalStats);
@@ -20,6 +20,8 @@ router.delete('/ventes', purgeVentes);
 // Portail d'indexation admin (rattrapage boutiques sans cahier)
 router.get('/produits/lookup/:codeBarres', lookupProduitCrossTenant);
 router.post('/produits', creerProduitPourTenant);
+router.patch('/produits/:id/stock', ajouterStockProduit);
+router.patch('/produits/:id', modifierProduitLeger);
 // Sauvegarde manuelle / restauration
 router.get('/backup', exporterBackup);
 router.post('/backup/restaurer', restaurerDepuisBackup);
