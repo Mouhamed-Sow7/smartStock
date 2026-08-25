@@ -63,6 +63,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/boutiques", require("./routes/boutique.routes"));
 app.use("/api/clients", require("./routes/client.routes"));
+app.use("/api/fournisseurs", require("./routes/fournisseur.routes"));
+app.use("/api/achats", require("./routes/achat.routes"));
 app.get("/", (req, res) => {
   res.json({
     message: "Bienvenue sur l'API SmartStock",
