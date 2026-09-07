@@ -2,6 +2,28 @@ const Fournisseur = require('../models/fournisseur.model');
 const Achat = require('../models/achat.model');
 const Produit = require('../models/produit.model');
 
+// Validation souple du téléphone sénégalais. On ne fige PAS la liste des
+// préfixes opérateurs (70/75/76/77/78 pour le mobile, 33 pour le fixe) --
+// l'ARTP en a déjà ajouté de nouveaux par le passé (ex: le 78 accordé à la
+// Sonatel en 2012 quand le 77 a saturé) et un fournisseur peut aussi
+// utiliser un numéro fixe pro. On valide juste la forme : 9 chiffres après
+// nettoyage des espaces/tirets, préfixe pays +221/221 optionnel, premier
+// chiffre 3 (fixe) ou 7 (mobile). Ça laisse passer tout numéro sénégalais
+// plausible sans faux-rejet, ce qui est le risque principal ici (voir
+// discussion produit -- mieux vaut être permissif que bloquer une vraie
+// saisie).
+function telephoneValide(tel) {
+  if (!tel) return true; // champ optionnel
+  const nettoye = tel.toString().trim().replace(/[\s.-]/g, '');
+  const sansIndicatif = nettoye.replace(/^(\+?221)/, '');
+  return /^[37]\d{8}$/.test(sansIndicatif);
+}
+
+function emailValide(email) {
+  if (!email) return true; // champ optionnel
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.toString().trim());
+}
+
 // Fournisseurs/achats sont un outil de gestion patron — un agent n'a pas à
 // voir les coûts d'achat de la boutique (ce serait lui exposer la marge
 // réelle, information sensible). Même garde inline que le reste du code
@@ -28,12 +50,18 @@ const createFournisseur = async (req, res) => {
   try {
     if (!verifierPatron(req, res)) return;
     const tenantId = req.tenantId || 'default';
-    const { nom, telephone, adresse, notes } = req.body;
+    const { nom, telephone, email, adresse, notes } = req.body;
     if (!nom || !nom.trim()) {
       return res.status(400).json({ success: false, message: 'Nom du fournisseur requis' });
     }
+    if (!telephoneValide(telephone)) {
+      return res.status(400).json({ success: false, message: 'Numéro de téléphone invalide (9 chiffres, ex : 77 123 45 67)' });
+    }
+    if (!emailValide(email)) {
+      return res.status(400).json({ success: false, message: 'Adresse email invalide' });
+    }
     const fournisseur = await Fournisseur.create({
-      tenantId, nom: nom.trim(), telephone: telephone || '', adresse: adresse || '', notes: notes || '',
+      tenantId, nom: nom.trim(), telephone: telephone || '', email: email || '', adresse: adresse || '', notes: notes || '',
     });
     res.status(201).json({ success: true, data: fournisseur });
   } catch (err) { res.status(400).json({ success: false, message: err.message }); }
@@ -43,10 +71,17 @@ const updateFournisseur = async (req, res) => {
   try {
     if (!verifierPatron(req, res)) return;
     const tenantId = req.tenantId || 'default';
-    const { nom, telephone, adresse, notes } = req.body;
+    const { nom, telephone, email, adresse, notes } = req.body;
+    if (telephone !== undefined && !telephoneValide(telephone)) {
+      return res.status(400).json({ success: false, message: 'Numéro de téléphone invalide (9 chiffres, ex : 77 123 45 67)' });
+    }
+    if (email !== undefined && !emailValide(email)) {
+      return res.status(400).json({ success: false, message: 'Adresse email invalide' });
+    }
     const maj = {};
     if (nom !== undefined) maj.nom = nom;
     if (telephone !== undefined) maj.telephone = telephone;
+    if (email !== undefined) maj.email = email;
     if (adresse !== undefined) maj.adresse = adresse;
     if (notes !== undefined) maj.notes = notes;
     const fournisseur = await Fournisseur.findOneAndUpdate({ _id: req.params.id, tenantId }, maj, { new: true, runValidators: true });

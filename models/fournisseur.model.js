@@ -5,6 +5,7 @@ const fournisseurSchema = new mongoose.Schema(
     tenantId: { type: String, required: true, index: true },
     nom: { type: String, required: true, trim: true },
     telephone: { type: String, default: '' },
+    email: { type: String, default: '', trim: true, lowercase: true },
     adresse: { type: String, default: '' },
     notes: { type: String, default: '' },
   },
