@@ -132,6 +132,34 @@ app.use((req, res) => {
   }
   res.status(404).json({ success: false, message: "Route non trouvée" });
 });
+// --- SmartStock Local : rattrapage de sauvegarde au démarrage -----------
+// Concerne uniquement le mode Local Windows (voir scripts/local-backup.js
+// pour la détection précise -- Windows ET MongoDB local, pas seulement
+// Windows). Sur Cloud/Render, toujours Linux, cette fonction retourne
+// immédiatement : aucun require de scripts/local-backup.js, aucun log,
+// aucun comportement changé. Le backup, s'il est déclenché, tourne en
+// arrière-plan via setImmediate -- jamais d'attente avant que le serveur
+// HTTP soit prêt à répondre, et une erreur ici ne doit jamais faire tomber
+// l'API (d'où le try/catch qui englobe tout, y compris les require()).
+function demarrerRattrapageBackupLocal() {
+  if (process.platform !== "win32") return;
+  setImmediate(() => {
+    try {
+      const backup = require("./scripts/local-backup");
+      const { resolveMongoUri } = require("./config/db");
+      if (!backup.environnementLocalValide(process.platform, resolveMongoUri())) return;
+      if (backup.backupRecentExiste(24 * 60 * 60 * 1000)) return;
+      console.log("SmartStock Local : aucun backup récent (< 24h) -- lancement en arrière-plan.");
+      backup.executerBackup();
+    } catch (err) {
+      console.error(
+        "SmartStock Local : rattrapage de backup ignoré suite à une erreur (non bloquant pour le serveur) :",
+        err.message,
+      );
+    }
+  });
+}
+
 const PORT = process.env.PORT || 3000;
 async function startServer() {
   console.log("=== startServer() appelée ===");
@@ -162,6 +190,7 @@ async function startServer() {
       console.log("Serveur démarré sur le port " + PORT);
       console.log("URL: http://localhost:" + PORT);
       console.log("========================================");
+      demarrerRattrapageBackupLocal();
     });
   } catch (error) {
     console.error("Erreur de connexion MongoDB:", error.message);
