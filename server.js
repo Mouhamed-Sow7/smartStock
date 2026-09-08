@@ -102,6 +102,7 @@ app.use("/api/boutiques", require("./routes/boutique.routes"));
 app.use("/api/clients", require("./routes/client.routes"));
 app.use("/api/fournisseurs", require("./routes/fournisseur.routes"));
 app.use("/api/achats", require("./routes/achat.routes"));
+app.use("/api/patron", require("./routes/patron.routes"));
 // Message de bienvenue JSON -- uniquement pertinent quand il n'y a pas de
 // frontend à servir ici (Cloud/Render). En mode Local, express.static
 // sert déjà index.html sur "/" automatiquement, donc pas besoin (et pas
