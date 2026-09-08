@@ -2,6 +2,8 @@ require("dotenv").config();
 console.log("=== Démarrage du serveur SmartStock ===");
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
 const connectDB = require("./config/db");
 console.log("Import des routes...");
 const produitRoutes = require("./routes/produit.routes");
@@ -40,6 +42,22 @@ app.use(
   }),
 );
 app.use(express.json());
+
+// --- SmartStock Local : servir le build Angular depuis ce même process ---
+// Décision architecture du 08/09/2026 : en mode Local, le frontend et
+// l'API tournent sur le même serveur Express, à la même adresse -- pas
+// besoin de connaître d'IP à l'avance côté frontend (voir
+// environments/environment.ts, résolution "same-origin"). Détection par
+// présence de fichier plutôt que par variable d'env : sur Render (Cloud),
+// ce dossier n'existe pas dans le repo backend déployé, donc
+// frontendDisponible est toujours false et RIEN ne change côté Cloud.
+const frontendDistPath = path.join(__dirname, "public");
+const frontendDisponible = fs.existsSync(path.join(frontendDistPath, "index.html"));
+if (frontendDisponible) {
+  console.log("Frontend Local détecté (public/index.html) -- servi statiquement.");
+  app.use(express.static(frontendDistPath));
+}
+
 app.get("/ping", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
@@ -65,19 +83,34 @@ app.use("/api/boutiques", require("./routes/boutique.routes"));
 app.use("/api/clients", require("./routes/client.routes"));
 app.use("/api/fournisseurs", require("./routes/fournisseur.routes"));
 app.use("/api/achats", require("./routes/achat.routes"));
-app.get("/", (req, res) => {
-  res.json({
-    message: "Bienvenue sur l'API SmartStock",
-    endpoints: {
-      produits: "/api/produits",
-      ventes: "/api/ventes",
-      agents: "/api/agents",
-      panier: "/api/panier",
-      auth: "/api/auth",
-    },
+// Message de bienvenue JSON -- uniquement pertinent quand il n'y a pas de
+// frontend à servir ici (Cloud/Render). En mode Local, express.static
+// sert déjà index.html sur "/" automatiquement, donc pas besoin (et pas
+// souhaitable) d'enregistrer cette route JSON par-dessus.
+if (!frontendDisponible) {
+  app.get("/", (req, res) => {
+    res.json({
+      message: "Bienvenue sur l'API SmartStock",
+      endpoints: {
+        produits: "/api/produits",
+        ventes: "/api/ventes",
+        agents: "/api/agents",
+        panier: "/api/panier",
+        auth: "/api/auth",
+      },
+    });
   });
-});
+}
 app.use((req, res) => {
+  // Mode Local : toute requête GET qui n'est ni un fichier statique connu
+  // ni une route API est probablement une route interne du routeur
+  // Angular (ex: /patron/dashboard rechargée directement dans le
+  // navigateur) -- on renvoie index.html et le routeur Angular côté
+  // client prend le relais. Les vraies routes /api/* inconnues gardent
+  // exactement leur réponse JSON 404 actuelle, en Local comme en Cloud.
+  if (frontendDisponible && req.method === "GET" && !req.path.startsWith("/api")) {
+    return res.sendFile(path.join(frontendDistPath, "index.html"));
+  }
   res.status(404).json({ success: false, message: "Route non trouvée" });
 });
 const PORT = process.env.PORT || 3000;
