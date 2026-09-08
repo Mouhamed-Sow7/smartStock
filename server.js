@@ -27,10 +27,29 @@ const originesAutorisees = [
   "https://smartstock.digitalesf.com",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
+
+// SmartStock Local / réseau LAN / Tailscale -- ces adresses ne sont pas
+// connues à l'avance (chaque boutique a sa propre IP), donc liste blanche
+// exacte impossible ici : on teste un motif plutôt qu'une valeur figée.
+// Reste volontairement restreint à des plages non routables publiquement
+// (RFC1918 + CGNAT Tailscale) + localhost -- jamais un accès depuis
+// Internet, cohérent avec "ne pas exposer l'API au public" pour le mode
+// Local (voir décision architecture CORS du 08/09/2026).
+const REGEX_ORIGINE_LOCALE = new RegExp(
+  '^https?:\\/\\/(' +
+    'localhost' + // localhost, tout port
+    '|127\\.0\\.0\\.1' + // boucle locale IPv4, tout port
+    '|10\\.(?:\\d{1,3}\\.){2}\\d{1,3}' + // RFC1918 10.0.0.0/8
+    '|172\\.(?:1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}' + // RFC1918 172.16.0.0/12
+    '|192\\.168\\.\\d{1,3}\\.\\d{1,3}' + // RFC1918 192.168.0.0/16
+    '|100\\.(?:6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\.\\d{1,3}\\.\\d{1,3}' + // Tailscale CGNAT 100.64.0.0/10
+    '|[a-zA-Z0-9.-]+\\.ts\\.net' + // Tailscale MagicDNS / Serve (usage futur)
+    ')(:\\d+)?$',
+);
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || originesAutorisees.includes(origin)) {
+      if (!origin || originesAutorisees.includes(origin) || REGEX_ORIGINE_LOCALE.test(origin)) {
         callback(null, true);
       } else {
         callback(new Error("CORS non autorisé: " + origin));
