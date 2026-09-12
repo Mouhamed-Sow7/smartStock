@@ -70,10 +70,19 @@ app.use(express.json());
 // présence de fichier plutôt que par variable d'env : sur Render (Cloud),
 // ce dossier n'existe pas dans le repo backend déployé, donc
 // frontendDisponible est toujours false et RIEN ne change côté Cloud.
-const frontendDistPath = path.join(__dirname, "public");
+//
+// Chemin attendu : public/browser/index.html (Phase 2, 12/09/2026).
+// smartstock-pwa (@angular/build:application, outputMode "static") produit
+// dist/smartstock-pwa/browser/ -- volontairement PAS de fileReplacements
+// outputPath vers ce repo backend, pour garder les deux dépôts découplés.
+// C'est l'étape de packaging/installeur Local qui copie ce dossier
+// "browser" tel quel ici, sous backend/public/browser. On ne supporte plus
+// l'ancien chemin public/index.html (jamais utilisé en pratique -- le
+// build Angular n'a jamais produit ça).
+const frontendDistPath = path.join(__dirname, "public", "browser");
 const frontendDisponible = fs.existsSync(path.join(frontendDistPath, "index.html"));
 if (frontendDisponible) {
-  console.log("Frontend Local détecté (public/index.html) -- servi statiquement.");
+  console.log("Frontend Local détecté (public/browser/index.html) -- servi statiquement.");
   app.use(express.static(frontendDistPath));
 }
 
